@@ -1,7 +1,7 @@
 require 'io/console'
 
 rows, cols = IO.console.winsize
-puts "Your terminal is #{cols} columns wide and #{rows} rows high."
+#puts "Your terminal is #{cols} columns wide and #{rows} rows high."
 
 $z = nil # Z-machine memory contents
 $quit = false 
@@ -283,9 +283,7 @@ def printAtAddress(address)
 				alphabet_offset = 0
 				abbpointer = $abbrev_table + 2 * (32 * abbrev_bank - 32 + value)
 				abbaddress = 2 * readWord(abbpointer)
-#				print "ABBREV#{abbrev_bank}:#{value}:$#{abbpointer.to_s(16)}["
 				printAtAddress(abbaddress)
-#				print "]"
 				abbrev_bank = 0
 			elsif alphabet_offset == 2 and value == 6
 				 alphabet_offset = 0
@@ -321,12 +319,14 @@ def printAtAddress(address)
 			elsif value == 4
 				if $zcode_version < 3 then
 					alphabet_offset_lock = (alphabet_offset_lock + 1) % 3
+					alphabet_offset = alphabet_offset_lock
 				else
 					alphabet_offset = 1
 				end
 			elsif value == 5
 				if $zcode_version < 3 then
 					alphabet_offset_lock = (alphabet_offset_lock + 2) % 3
+					alphabet_offset = alphabet_offset_lock
 				else
 					alphabet_offset = 2
 				end
@@ -1042,7 +1042,7 @@ end
 
 def insPull
 	value = $stack.pop
-	$stack.pop if $args[0] == 0 # Should alter the top value, not add a new onw
+	$stack.pop if $args[0] == 0 # Should alter the top value, not add a new one
 	setVar($args[0], value)
 end
 
@@ -1073,7 +1073,7 @@ $opcode_routines = {
 		method(:insInc),
 		method(:insDec),
 		method(:insPrintAddr),
-		nil, #call_1s v4+
+		method(:insCallS), #call_1s v4+
 		method(:insRemoveObj),
 		method(:insPrintObj),
 		method(:insRet),
@@ -1108,8 +1108,8 @@ $opcode_routines = {
 		method(:insMul),
 		method(:insDiv),
 		method(:insMod),
-		nil, # call_2s v4+
-		nil, # call_2n v5+
+		method(:insCallS), # call_2s v4+
+		method(:insCallN), # call_2n v5+
 		nil, # set_colour v5+
 		nil, # throw v5+
 	],
@@ -1139,7 +1139,7 @@ $opcode_routines = {
 		nil, #read_char v4+
 		nil, #scan_table v4+
 		nil, #not v5+
-		nil, #call_vn v5+
+		method(:insCallN), #call_vn v5+
 		nil, #call_vn2 v5+
 		nil, #tokenise v5+
 		nil, #encode v5+
@@ -1166,7 +1166,6 @@ $opcode_routines = {
 }
 
 def readWord(p_address)
-#	print "*" + p_address.to_s
 	$z[p_address .. p_address + 1].unpack('n*')[0]
 end
 
