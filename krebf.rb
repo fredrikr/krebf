@@ -1,6 +1,3 @@
-# gem install terminal-size
-#require 'terminal-size'
-
 require 'io/console'
 
 rows, cols = IO.console.winsize
@@ -117,10 +114,8 @@ class StackClass
 		frame = @stack.pop
 		$pc = frame['ret']
 		store = frame['sto']
-#		print "RETPC=$#{$pc.to_s(16)}."
 		frame = @stack.last
 		@locals = frame['loc']
-#		print "FOUND #{@locals} AT RETURN"
 		if store
 			setVar(readByteAtPC(), value)
 		end
@@ -144,10 +139,6 @@ end
 $stack = StackClass.new
 
 def readGlobal(n)
-#	if n == 0x4a
-#		$trace = true
-#		puts "Reading global $#{n.to_s(16)} at address $#{(2 * n + readWord(0xc) - 32).to_s(16)}...";
-#	end
 	readWord(2 * n + $global_base)
 end
 
@@ -617,7 +608,6 @@ def insPrintObj
 	address = objectAddress($args[0]) + 
 		($zcode_version < 4 ? 7 : 12)
 	props = readWord(address)
-#	print "#{$args[0].to_s(16)}:#{address.to_s(16)}:#{props.to_s(16)}:#{readByte(props).to_s(16)}"
 	if readByte(props) > 0
 		printAtAddress(props + 1)
 	end
@@ -720,7 +710,6 @@ def getProp(obj, propnum, next_after_prop = false)
 	found = false
 	lastpropnum = 0
 	if address != 0 and (propnum > 0 || next_after_prop)
-		#	print "#{$args[0].to_s(16)}:#{address.to_s(16)}:#{readByte(address).to_s(16)}"
 		address += 2 * readByte(address) + 1 # Now pointing to first property in table
 		byte0 = 1000
 		thispropnum = 1000
@@ -896,8 +885,6 @@ def encodeWord(word)
 		intermediate.push hash
 	end
 	
-#	p intermediate
-	
 	codes = []
 	max_codes = $zcode_version < 4 ? 6 : 9
 	intermediate.each do |hash|
@@ -921,8 +908,6 @@ def encodeWord(word)
 		codes = codes.first(max_codes)
 	end
 
-#	p codes
-	
 	code_pointer = 0
 	bin = ""
 	while code_pointer < max_codes do
@@ -967,7 +952,6 @@ end
 def insRead
 
 	buffer = $args[0]
-#	puts ">BUFFER IS AT #{buffer.to_s}"
 	byte0 = readByte(buffer)
 	maxchars = $zcode_version < 5 ? byte0 - 1 : byte0
 	parse = $args[1]
@@ -1015,8 +999,6 @@ def insRead
 		writeByte(buffer_pointer, 0)
 	end
 
-#	p words
-
 	### Parse words
 
 	parsed = 0
@@ -1024,7 +1006,6 @@ def insRead
 		break if parsed >= maxparse
 		word = hash['word']
 		dict = dictLookup(encodeWord(word))
-#		p ">>" + (((dict - $dict_base).to_f / $dict_entry_length) + 1).to_s
 		writeWord(parse + 4 * parsed + 2, dict)
 		writeByte(parse + 4 * parsed + 4, word.length)
 		writeByte(parse + 4 * parsed + 5, hash['start'])
@@ -1032,12 +1013,6 @@ def insRead
 	end
 
 	writeByte(parse + 1, parsed)
-
-#	20.times do |i|
-#		puts "#{parse - i}: #{readByte(parse + i)}"
-#	end
-
-#	puts input.split.map { |x| x.length }
 
 end
 
@@ -1358,11 +1333,10 @@ end
 
 initializeGame()
 
-$trace = true
+$trace = false
 
 # Main game loop
 while $quit == false do
-#	val0 = readVar(0x51)
 	address = $pc
 	$instruction = readInstruction()
 	$args = $instruction['operand_values']
@@ -1375,27 +1349,9 @@ while $quit == false do
 	end
 	func = funcs[$instruction['opcode_number']]
 
-#	if address >= 0xa017 and address <= 0xa02a
-#		puts "PC=$#{address.to_s(16)}, Ins = #{$instruction}" # if $trace
-#	end
+	puts "PC=$#{address.to_s(16)}, Ins = #{$instruction}" if $trace
 	func.call()
-
-#	val1 = readVar(0x51)
-#	if val0 != val1 # and !([0xa027,0xa03b,0xa5fe].include? address)
-#		puts "CHANGE, value: #{val0} => #{val1}, PC=$#{address.to_s(16)}, Ins = #{$instruction}"
-#		$quit = true 
-#	end
 		
-#	v = readVar(0x50)
-#	if v > 1 && v < 0x1a # &&  v < 0x5256
-#		puts "Global 0x50 (scope_routine) is now #{v}"
-#		$quit = true 
-#	end
-#	if address < 0x5256
-#		puts "Weird address is #{address}. Global 0x50 (scope_routine) is now #{v}"
-#		$quit = true
-#	end
 end
 
-#puts "$pc is #{$pc.to_s(16)}"
-puts "Done."
+puts "Bye"
