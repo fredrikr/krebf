@@ -116,12 +116,12 @@ class StackClass
 	end
 	def packCurrentFrame
 		frame = @stack.last
-		if @locals
+		if @locals and !@locals.empty?
 			frame['loc'] = @locals
 		else
 			frame.delete('loc')
 		end
-		if @pushed
+		if @pushed and !@pushed.empty?
 			frame['push'] = @pushed
 		else
 			frame.delete('push')
@@ -164,6 +164,7 @@ class StackClass
 		$pc = unpackRoutinePaddress(paddress)
 		varCount = readByteAtPC()
 		@locals = Array.new(size = varCount, default = 0)
+		@pushed = nil
 		if $zcode_version < 5
 			varCount.times do |i|
 				if i < args.length
