@@ -114,15 +114,29 @@ class StackClass
 		@locals = nil
 		@pushed = nil
 	end
-	def stackForSave
+	def packCurrentFrame
 		frame = @stack.last
-		frame['loc'] = @locals if @locals
+		if @locals
+			frame['loc'] = @locals
+		else
+			frame.delete('loc')
+		end
+		if @pushed
+			frame['push'] = @pushed
+		else
+			frame.delete('push')
+		end
+		nil
+	end
+	def stackForSave
+		packCurrentFrame()
 		@stack
 	end
 	def stackForSave=(stack)
 		@stack = stack
 		frame = @stack.last
 		@locals = frame['loc']
+		@pushed = frame['pushed']
 		@stack
 	end
 	def readLocal(n)
@@ -142,13 +156,7 @@ class StackClass
 		@locals[n-1] = value
 	end
 	def call(paddress, args, store)
-		frame = @stack.last
-		frame['loc'] = @locals if @locals
-		if @pushed
-			frame['push'] = @pushed
-		else 
-			frame.delete 'push'
-		end
+		packCurrentFrame()
 		new_frame = {
 			'ret' => $pc,
 			'sto' => store,
@@ -180,6 +188,7 @@ class StackClass
 		store = frame['sto']
 		frame = @stack.last
 		@locals = frame['loc']
+		@pushed = frame['push']
 		if store
 			setVar(readByteAtPC(), value)
 		end
