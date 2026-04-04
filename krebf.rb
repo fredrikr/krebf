@@ -1051,7 +1051,7 @@ def rndSeedRandom
 end
 
 def insRandom
-	arg = $args[0]
+	arg = toSigned($args[0])
 	val = 0
 	mask = 1
 	if arg < 0
@@ -1079,7 +1079,7 @@ def insRandom
 		end
 		val += 1
 	end
-		puts "arg = #{arg}  mask = #{mask}  val = #{val}"
+#		puts "arg = #{arg}  mask = #{mask}  val = #{val}"
 	setVar(readByteAtPC(), val)
 end
 
@@ -1332,7 +1332,7 @@ def initializeGame
 	rndSeedRandom()
 
 #	rndSeed(0xff, 0x80, 0x01) # For benchmark mode
-	puts "rnd_a = #{$rnd_a.to_s(16)} rnd_b = #{$rnd_b.to_s(16)} rnd_c = #{$rnd_c.to_s(16)} rnd_x = #{$rnd_x.to_s(16)}"
+#	puts "rnd_a = #{$rnd_a.to_s(16)} rnd_b = #{$rnd_b.to_s(16)} rnd_c = #{$rnd_c.to_s(16)} rnd_x = #{$rnd_x.to_s(16)}"
 
 	$pc = readWord(6)
 	$object_table = readWord(0xa)
