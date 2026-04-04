@@ -1512,9 +1512,9 @@ len = $z.length
 $zcode_version = -1
 $zcode_version = $z[0].ord if len > 0
 
-if len < 64 or len > 512 * 1024 or [1,2,3,4,5,8].include?($zcode_version) == false
+if len < 64 or len > 512 * 1024 or [1,2,3].include?($zcode_version) == false
 	puts "The file #{$storyfile_name} doesn't seem to be a valid Z-code file, " +
-			"using Z-code version 1,2,3,4,5 or 8."
+			"using Z-code version 1,2 or 3."
 	exit 1
 end
 
