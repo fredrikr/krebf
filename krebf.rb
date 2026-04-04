@@ -433,7 +433,7 @@ end
 
 def insQuit
 	puts "<Hit any key to exit>";
-	gets
+	STDIN.gets
 	exit 0
 end
 
@@ -1031,10 +1031,12 @@ end
 
 def rndNumber
 	# returns an 8-bit random number
-	$rnd_x = ($rnd_x + 1) % 256
+	$rnd_x = ($rnd_x + 1) & 0xff
 	$rnd_a = $rnd_x ^ $rnd_c ^ $rnd_a
-	$rnd_b = ($rnd_a + $rnd_b) % 256
-	$rnd_c = ((($rnd_b >> 1) ^ $rnd_a) + $rnd_c) % 256 # Returns $rnd_c
+	$rnd_b = ($rnd_a + $rnd_b) & 0xff
+	$rnd_c = ((($rnd_b >> 1) ^ $rnd_a) + $rnd_c) & 0xff
+#	puts "rnd_a = #{$rnd_a.to_s(16)} rnd_b = #{$rnd_b.to_s(16)} rnd_c = #{$rnd_c.to_s(16)} rnd_x = #{$rnd_x.to_s(16)}"
+	$rnd_c
 end	
 
 def rndSeed(a, x, y)
@@ -1070,11 +1072,10 @@ def insRandom
 		# Draw random number, apply mask, redraw if too big
 		val = 100000
 		while val >= arg do
-			if arg > 255
-				val = (rndNumber() << 8) | rndNumber()
-			else
-				val = rndNumber()
-			end
+			val = rndNumber()
+#			if arg > 255 # Due to a bug in Ozmoo, this must be commented out.
+				val = (val << 8) | rndNumber()
+#			end
 			val &= mask
 		end
 		val += 1
@@ -1322,7 +1323,7 @@ end
 
 def checkScreenSize
 	$screen_height, $screen_width = IO.console.winsize
-	#puts "Your terminal is #{cols} columns wide and #{rows} rows high."
+	#puts "Your terminal is #{$screen_width} columns wide and #{$screen_height} rows high."
 end
 
 def initializeGame
@@ -1330,9 +1331,7 @@ def initializeGame
 	checkScreenSize()
 	
 	rndSeedRandom()
-
 #	rndSeed(0xff, 0x80, 0x01) # For benchmark mode
-#	puts "rnd_a = #{$rnd_a.to_s(16)} rnd_b = #{$rnd_b.to_s(16)} rnd_c = #{$rnd_c.to_s(16)} rnd_x = #{$rnd_x.to_s(16)}"
 
 	$pc = readWord(6)
 	$object_table = readWord(0xa)
