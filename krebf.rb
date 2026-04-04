@@ -1,8 +1,5 @@
 require 'io/console'
 
-rows, cols = IO.console.winsize
-#puts "Your terminal is #{cols} columns wide and #{rows} rows high."
-
 $z = nil # Z-machine memory contents
 $quit = false 
 
@@ -1025,16 +1022,68 @@ def insPrintNum
 	print "#{toSigned($args[0])}"
 end
 
+#######################################
+#               PRNG
+#
+# Must work exactly like Ozmoo's PRNG,
+# for Ozmoo's walkthroughs to work.
+#######################################
+
+def rndNumber
+	# returns an 8-bit random number
+	$rnd_x = ($rnd_x + 1) % 256
+	$rnd_a = $rnd_x ^ $rnd_c ^ $rnd_a
+	$rnd_b = ($rnd_a + $rnd_b) % 256
+	$rnd_c = ((($rnd_b >> 1) ^ $rnd_a) + $rnd_c) % 256 # Returns $rnd_c
+end	
+
+def rndSeed(a, x, y)
+	$rnd_a = a
+	$rnd_b = x
+	$rnd_c = y
+	$rnd_x = a ^ 0xff
+	rndNumber()
+end
+
+def rndSeedRandom
+	seed = $random.bytes(3)
+	rndSeed(seed[0].ord, seed[1].ord, seed[2].ord) 
+end
+
 def insRandom
 	arg = $args[0]
 	val = 0
-	if arg <= 0
-		val = 0
+	mask = 1
+	if arg < 0
+		rndSeed(
+			((arg >> 8) + 0b10101010) % 256,
+			arg & 0xff,
+			arg >> 8
+		)
+	elsif arg == 0
+		rndSeedRandom()
 	else
-		val = arg
+		# Create a bit mask, 1, 11, 111, etc that is >= arg
+		while mask < arg do
+			mask = (mask << 1) | 1
+		end
+		# Draw random number, apply mask, redraw if too big
+		val = 100000
+		while val >= arg do
+			if arg > 255
+				val = (rndNumber() << 8) | rndNumber()
+			else
+				val = rndNumber()
+			end
+			val &= mask
+		end
+		val += 1
 	end
+		puts "arg = #{arg}  mask = #{mask}  val = #{val}"
 	setVar(readByteAtPC(), val)
 end
+
+# End of PRNG code
 
 def insPush
 	$stack.push $args[0]
@@ -1271,8 +1320,19 @@ def readInstruction
 	}
 end
 
+def checkScreenSize
+	$screen_height, $screen_width = IO.console.winsize
+	#puts "Your terminal is #{cols} columns wide and #{rows} rows high."
+end
+
 def initializeGame
-	$screen_width = 65
+
+	checkScreenSize()
+	
+	rndSeedRandom()
+
+#	rndSeed(0xff, 0x80, 0x01) # For benchmark mode
+	puts "rnd_a = #{$rnd_a.to_s(16)} rnd_b = #{$rnd_b.to_s(16)} rnd_c = #{$rnd_c.to_s(16)} rnd_x = #{$rnd_x.to_s(16)}"
 
 	$pc = readWord(6)
 	$object_table = readWord(0xa)
@@ -1329,6 +1389,8 @@ if len < 64 or len > 512 * 1024 or [1,2,3,4,5,8].include?($zcode_version) == fal
 			"using Z-code version 1,2,3,4,5 or 8."
 	exit 1
 end
+
+$random = Random.new
 
 initializeGame()
 
