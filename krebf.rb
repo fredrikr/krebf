@@ -1,4 +1,6 @@
 require 'io/console'
+require 'json'
+require 'base64'
 
 $z = nil # Z-machine memory contents
 $quit = false 
@@ -111,6 +113,17 @@ class StackClass
 		@stack = [{}]
 		@locals = nil
 		@pushed = nil
+	end
+	def stackForSave
+		frame = @stack.last
+		frame['loc'] = @locals if @locals
+		@stack
+	end
+	def stackForSave=(stack)
+		@stack = stack
+		frame = @stack.last
+		@locals = frame['loc']
+		@stack
 	end
 	def readLocal(n)
 		if @locals.length < n
@@ -430,11 +443,29 @@ def insNop
 end
 
 def insSave
-	puts "[Save not implemented]"
+	success = false
+	$screen.printBuffered("Please enter a filename: ", true)
+	filename = STDIN.gets.chomp
+	if filename.length == 0
+		nil
+	elsif filename =~/\.\.|~|\// 
+		puts "Illegal characters in filename."
+	elsif File.exist?(filename)
+		puts "File exists."
+	else
+		savedata = {
+			'pc' => $pc,
+			'stack' => $stack.stackForSave,
+			'dynmem' => Base64.encode64($z[0 .. readWord(0xe) - 1])
+		}
+		json = JSON.generate(savedata)
+		IO.binwrite(filename, json)
+		success = true
+	end
 	if $zcode_version < 4
-		condBranch(false)
+		condBranch(success)
 	else ## if $zcode_version == 4
-		setVar(readByteAtPC(), 0)
+		setVar(readByteAtPC(), success ? 1 : 0)
 	end
 end
 
@@ -447,17 +478,41 @@ def forkInsSaveOrIllegal
 end
 
 def insRestore
-	puts "[Restore not implemented]"
+	success = false
+	$screen.printBuffered("Please enter a filename: ", true)
+	filename = STDIN.gets.chomp
+	if filename.length == 0
+		nil
+	elsif filename =~ /\.\.|~|\//
+		puts "Illegal characters in filename."
+	elsif !File.exist?(filename)
+		puts "File not found."
+	else
+		savefiledata = IO.binread(filename)
+		success = true
+		begin
+			savedata = JSON.parse(savefiledata)
+		rescue JSON::ParserError
+			puts "Not a valid save file."
+			success = false
+		end
+		if success
+			$pc = savedata['pc']
+			$stack.stackForSave = savedata['stack']
+			$z[0 .. readWord(0xe) - 1] = Base64.decode64(savedata['dynmem'])
+		end
+	end
+
 	if $zcode_version < 4
-		condBranch(false)
+		condBranch(success)
 	else ## if $zcode_version == 4
-		setVar(readByteAtPC(), 0)
+		setVar(readByteAtPC(), success ? 1 : 0)
 	end
 end
 
 def forkInsRestoreOrIllegal
 	if $zcode_version < 5
-		insSave()
+		insRestore()
 	else
 		illegalInstruction();
 	end
@@ -1445,7 +1500,7 @@ end
 ####################################
 
 if ARGV.length < 1
-	puts "Usage: terp <zcode-file>"
+	puts "Usage: ruby krebf.rb <zcode-file>"
 	exit 1
 end
 
