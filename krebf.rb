@@ -61,6 +61,12 @@ class ScreenClass
 		@screen_height, @screen_width = IO.console.winsize
 		#puts "Your terminal is #{$screen_width} columns wide and #{$screen_height} rows high."
 	end
+	def screen_height
+		@screen_height
+	end
+	def screen_width
+		@screen_width
+	end
 	def printBuffered(str, flush = false)
 		if str && str.length > 0
 			if @buffered
@@ -1367,6 +1373,34 @@ def readInstruction
 	}
 end
 
+def updateHeader
+	flags1 = readByte(1)
+	if $zcode_version < 4
+		flags1 &= (255 - 64 - 32) # Variable pitch font is not default, no screen split 
+		flags1 |= 16 # No statusline
+	end
+	writeByte(1, flags1)
+
+	writeByte(0x32, 0) # Standard revision, major version
+	writeByte(0x33, 0) # Standard revision, minor version
+	
+	if $zcode_version > 3
+		writeByte(0x1e, 2) # Interpreter = Apple IIe
+		writeByte(0x1f, 1) # Interpreter version = 1
+		writeByte(0x20, $screen.screen_height) # Screen height in characters
+		writeByte(0x21, $screen.screen_width) # Screen width in characters
+		if $zcode_version > 4
+			writeWord(0x22, $screen.screen_width) # Screen width in units
+			writeWord(0x24, $screen.screen_height)  # Screen height in units
+			writeByte(0x26, 1) # Font width in units
+			writeByte(0x27, 1) # Font height in units
+			writeByte(0x2c, 9) # Default background colour (white)
+			writeByte(0x2d, 2) # Default foreground colour (black)
+		end
+	end
+
+end
+
 def initializeGame
 
 	rndSeedRandom()
@@ -1403,6 +1437,7 @@ def initializeGame
 
 	$default_unicode = "äöüÄÖÜß»«ëïÿËÏáéíóúýÁÉÍÓÚÝàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛåÅøØãñõÃÑÕæÆçÇþðÞÐ£œŒ¡¿"
 
+	updateHeader()
 end
 
 ####################################
