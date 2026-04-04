@@ -550,7 +550,7 @@ end
 def insQuit
 	puts "<Hit any key to exit>";
 	STDIN.gets
-	exit 0
+	$quit = true
 end
 
 def insNewLine
