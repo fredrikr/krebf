@@ -51,6 +51,54 @@ def unpackStringPaddress(paddress)
 	end
 end
 
+class ScreenClass
+	def initialize
+		checkScreenSize()
+		@buffer = ""
+		@buffered = true
+	end
+	def checkScreenSize
+		@screen_height, @screen_width = IO.console.winsize
+		#puts "Your terminal is #{$screen_width} columns wide and #{$screen_height} rows high."
+	end
+	def printBuffered(str, flush = false)
+		if str && str.length > 0
+			if @buffered
+				newlinePos = 1
+				while str and newlinePos do
+					newlinePos = str.index(/\n/)
+					if newlinePos
+						if newlinePos > 0
+							printBuffered(str.first(newlinePos), true)
+						else
+							flushBuffer()
+							print "\n"
+						end
+						str = str[newlinePos + 1 ..]
+					end
+				end
+				@buffer += str
+				if @buffer.length > @screen_width - 1
+					breakPos = @buffer.rindex(/ /, @screen_width - 1)
+					if breakPos
+						puts @buffer[0 .. breakPos - 1]
+						@buffer = @buffer [breakPos + 1 ..]
+					else
+						puts @buffer[0 .. @screen_width - 2]
+						@buffer = @buffer[@screen_width - 1 ..]
+					end
+				end
+			else
+				print str
+			end
+		end
+		flushBuffer() if flush
+	end
+	def flushBuffer
+		print @buffer
+		@buffer = ""
+	end
+end
 
 class StackClass
 	def initialize
@@ -132,8 +180,6 @@ class StackClass
 		@pushed.pop
 	end
 end
-
-$stack = StackClass.new
 
 def readGlobal(n)
 	readWord(2 * n + $global_base)
@@ -329,7 +375,7 @@ def printAtAddress(address)
 				end
 			end
 			if char
-				print char.to_s
+				$screen.printBuffered char.to_s
 				alphabet_offset = alphabet_offset_lock
 			end
 		end
@@ -369,7 +415,7 @@ end
 
 def insPrintRet
 	$pc = printAtAddress($pc)
-	print "\n"
+	$screen.printBuffered "\n";
 	$stack.return 1
 end
 
@@ -438,7 +484,7 @@ def insQuit
 end
 
 def insNewLine
-	print "\n";
+	$screen.printBuffered "\n";
 end
 
 def insShowStatus
@@ -955,7 +1001,8 @@ def insRead
 	maxparse = readByte(parse)
 
 	### Perform input from keyboard
-
+	
+	$screen.flushBuffer()
 	input = STDIN.gets.chomp[0 .. maxchars - 1].downcase
 
 	### Write input into memory, and split it into words
@@ -1014,12 +1061,11 @@ def insRead
 end
 
 def insPrintChar
-	print $args[0].chr
+	$screen.printBuffered $args[0].chr
 end
 
 def insPrintNum
-#	value = $args[0] > 32767 ? $args[0] - 65536 : $args[0] 
-	print "#{toSigned($args[0])}"
+	$screen.printBuffered "#{toSigned($args[0])}"
 end
 
 #######################################
@@ -1321,15 +1367,8 @@ def readInstruction
 	}
 end
 
-def checkScreenSize
-	$screen_height, $screen_width = IO.console.winsize
-	#puts "Your terminal is #{$screen_width} columns wide and #{$screen_height} rows high."
-end
-
 def initializeGame
 
-	checkScreenSize()
-	
 	rndSeedRandom()
 #	rndSeed(0xff, 0x80, 0x01) # For benchmark mode
 
@@ -1388,6 +1427,11 @@ if len < 64 or len > 512 * 1024 or [1,2,3,4,5,8].include?($zcode_version) == fal
 			"using Z-code version 1,2,3,4,5 or 8."
 	exit 1
 end
+
+$stack = StackClass.new
+
+$screen = ScreenClass.new
+
 
 $random = Random.new
 
