@@ -58,9 +58,11 @@ class ScreenClass
 		checkScreenSize()
 		@buffer = ""
 		@buffered = true
+		@window = 0
 	end
 	def clear
-		print "\033[2J"
+		IO.console.clear_screen
+#		print "\033[2J"
 	end
 	def checkScreenSize
 		@screen_height, @screen_width = IO.console.winsize
@@ -72,9 +74,39 @@ class ScreenClass
 	def screen_width
 		@screen_width
 	end
+	def showStatusline # Only used for v1-v3
+		(line, col) = IO.console.cursor()
+		win = @window
+		@window = 2
+		IO.console.goto(0, 0)
+
+		print "\033[7m " # Reverse text
+
+		printObjectName(readGlobal(16))
+		(s_line, s_col) = IO.console.cursor()
+		print ' ' * (@screen_width - s_col) if @screen_width - s_col > 0
+
+		if $zcode_version == 3 and readByte(1) & 2 != 0
+			IO.console.goto(0, @screen_width - 18)
+			hbase = readGlobal(17)
+			h = hbase > 12 ? hbase - 12 : (hbase == 0 ? 12 : hbase)
+			m = readGlobal(18).to_s.rjust(2,'0')
+			ampm = hbase < 12 ? 'AM' : 'PM'
+			printBuffered " Time: #{h}:#{m} #{ampm}   "
+		else
+			IO.console.goto(0, @screen_width - 25)
+			printBuffered " Score: #{readGlobal(17)}   "
+			IO.console.goto(0, @screen_width - 13)
+			printBuffered " Moves: #{readGlobal(18)}   "
+		end
+		
+		print "\033[0m" # Normal text (reverse off)
+		
+		IO.console.goto(line, col)
+	end
 	def printBuffered(str, flush = false)
 		if str && str.length > 0
-			if @buffered
+			if @window == 0 && @buffered
 				newlinePos = 1
 				while str and newlinePos do
 					newlinePos = str.index(/\n/)
@@ -99,8 +131,16 @@ class ScreenClass
 						@buffer = @buffer[@screen_width - 1 ..]
 					end
 				end
-			else
+			elsif @window == 0
 				print str
+			else
+				# Statusline (2) or top window (1)
+				(s_line, s_col) = IO.console.cursor()
+#				if @screen_width - 1 < s_col + str.length
+				if s_col < @screen_width - 2
+					print str[0 .. @screen_width - s_col - 2]
+				end
+#				end
 			end
 		end
 		flushBuffer() if flush
@@ -562,7 +602,8 @@ def insNewLine
 end
 
 def insShowStatus
-	# NOP for now in all versions. Should always be a NOP in v4+
+	# Works like NOP in v4+
+	$screen.showStatusline if $zcode_version < 4
 end
 
 def insVerify
@@ -720,14 +761,17 @@ def insRemoveObj
 	setSibling(objaddress, 0)
 end
 
-
-def insPrintObj
-	address = objectAddress($args[0]) + 
+def printObjectName(obj)
+	address = objectAddress(obj) + 
 		($zcode_version < 4 ? 7 : 12)
 	props = readWord(address)
 	if readByte(props) > 0
 		printAtAddress(props + 1)
 	end
+end
+
+def insPrintObj
+	printObjectName($args[0])
 end
 
 def insRet
@@ -1080,6 +1124,7 @@ def insRead
 	### Perform input from keyboard
 	
 	$screen.flushBuffer()
+	$screen.showStatusline	
 	input = STDIN.gets.chomp[0 .. maxchars - 1].downcase
 
 	### Write input into memory, and split it into words
@@ -1243,7 +1288,7 @@ $opcode_routines = {
 		method(:forkInsPopOrCatch),
 		method(:insQuit),
 		method(:insNewLine),
-		method(:insShowStatus), #show_status v3
+		method(:insShowStatus),
 		method(:insVerify),
 		method(:insPiracy), #piracy
 	],
