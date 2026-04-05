@@ -349,7 +349,7 @@ def printAtAddress(address)
 				if escape_step == 0
 					escape_code &= 0xff
 					if escape_code >= 155 and escape_code <= 223
-						char = $default_unicode[escape_code - 154]
+						char = $default_unicode[escape_code - 155]
 					else
 						char = escape_code.chr
 					end
@@ -995,8 +995,11 @@ def encodeWord(word)
 				'code' => index % 26 + 6
 			}
 		else
+			charcode = char.ord
+			accentedpos = $default_unicode.index(char)
+			charcode = 155 + accentedpos if accentedpos
 			hash = {
-				'zscii' => char.ord
+				'zscii' => charcode
 			}
 		end
 		intermediate.push hash
@@ -1088,9 +1091,14 @@ def insRead
 	last_char = nil
 
 	input.each_char do |char|
-		writeByte(buffer_pointer, char.ord)
+		charcode = char.ord
+
+		accentedpos = $default_unicode.index(char)
+		charcode = accentedpos + 155 if accentedpos
+
+		writeByte(buffer_pointer, charcode)
 		if word_start
-			if char == ' ' or 
+			if char == ' ' or
 					$dict_separators.include? char or 
 					$dict_separators.include? last_char
 				word = input[word_start .. string_pointer - 1]
@@ -1135,7 +1143,12 @@ def insRead
 end
 
 def insPrintChar
-	$screen.printBuffered $args[0].chr
+	charcode = $args[0]
+	char = charcode.chr
+	
+	char = $default_unicode[charcode - 155] if charcode >= 155 and charcode <= 223
+	
+	$screen.printBuffered char
 end
 
 def insPrintNum
@@ -1515,7 +1528,7 @@ def initializeGame
 
 	updateHeader()
 	
-	$screen.clear
+	$screen.clear()
 end
 
 ####################################
