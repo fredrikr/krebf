@@ -68,10 +68,12 @@ class ScreenClass
 		@buffered = true
 		@window = 0
 		@bottom_printed_lines = 0
+		@column = 0
 	end
 	def clear
 		IO.console.clear_screen
 		IO.console.goto(@screen_height - 1, 0)
+		@column = 0
 	end
 	def checkScreenSize
 		@screen_height, @screen_width = IO.console.winsize
@@ -88,6 +90,7 @@ class ScreenClass
 		win = @window
 		@window = 2
 		IO.console.goto(0, 0)
+		@column = 0
 
 		print "\033[7m " # Reverse text
 
@@ -97,6 +100,7 @@ class ScreenClass
 
 		if $zcode_version == 3 and readByte(1) & 2 != 0
 			IO.console.goto(0, @screen_width - 18)
+			@column = @screen_width - 18
 			hbase = readGlobal(17)
 			h = hbase > 12 ? hbase - 12 : (hbase == 0 ? 12 : hbase)
 			m = readGlobal(18).to_s.rjust(2,'0')
@@ -104,8 +108,10 @@ class ScreenClass
 			printBuffered " Time: #{h}:#{m} #{ampm}   "
 		else
 			IO.console.goto(0, @screen_width - 25)
+			@column = @screen_width - 25
 			printBuffered " Score: #{readGlobal(17)}   "
 			IO.console.goto(0, @screen_width - 13)
+			@column = @screen_width - 13
 			printBuffered " Moves: #{readGlobal(18)}   "
 		end
 		
@@ -113,6 +119,7 @@ class ScreenClass
 		
 		@window = win
 		IO.console.goto(line, col)
+		@column = col
 	end
 	def more
 		IO.console.goto(@screen_height - 1, 0)
@@ -142,6 +149,7 @@ class ScreenClass
 						else
 							flushBuffer()
 							print "\n"
+							@column = 0
 							bottom_add_line()
 						end
 						str = str[newlinePos + 1 ..]
@@ -153,10 +161,12 @@ class ScreenClass
 					breakPos = @buffer.rindex(/ /, @screen_width - 1)
 					if breakPos
 						puts @buffer[0 .. breakPos - 1]
+						@column = 0
 						bottom_add_line()
 						@buffer = @buffer [breakPos + 1 ..]
 					else
 						puts @buffer[0 .. @screen_width - 2]
+						@column = 0
 						bottom_add_line()
 						@buffer = @buffer[@screen_width - 1 ..]
 					end
@@ -171,6 +181,7 @@ class ScreenClass
 							printBuffered(str.first(newlinePos))
 						else
 							print "\n"
+							@column = 0
 							bottom_add_line()
 						end
 						str = str[newlinePos + 1 ..]
@@ -178,21 +189,25 @@ class ScreenClass
 				end
 				# There are no newlines in str from this point
 				while str and !str.empty? do
-					(line, col) = IO.console.cursor()
-					if col + str.length < @screen_width - 2
+#					(line, col) = IO.console.cursor()
+					if @column + str.length < @screen_width - 2
 						print str
+						@column += str.length
 					else
 						print str[0 .. @screen_width - col - 1] + "\n"
+						@column = 0
 						bottom_add_line()
 						str = str[@screen_width - col ..]
 					end
 				end
 			else
 				# Statusline (2) or top window (1)
-				(s_line, s_col) = IO.console.cursor()
+#				(s_line, s_col) = IO.console.cursor()
 #				if @screen_width - 1 < s_col + str.length
-				if s_col < @screen_width - 2
-					print str[0 .. @screen_width - s_col - 2]
+				if @column < @screen_width - 2
+					toprint = str[0 .. @screen_width - @column - 2]
+					print toprint
+					@column += toprint.length
 				end
 #				end
 			end
@@ -201,6 +216,7 @@ class ScreenClass
 	end
 	def flushBuffer
 		print @buffer
+		@column += @buffer.length
 		@buffer = ""
 	end
 end
