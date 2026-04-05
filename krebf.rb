@@ -59,6 +59,9 @@ class ScreenClass
 		@buffer = ""
 		@buffered = true
 	end
+	def clear
+		print "\033[2J"
+	end
 	def checkScreenSize
 		@screen_height, @screen_width = IO.console.winsize
 		#puts "Your terminal is #{$screen_width} columns wide and #{$screen_height} rows high."
@@ -529,7 +532,7 @@ def forkInsRestoreOrIllegal
 end
 
 def insRestart
-	puts "[Restart not implemented]"
+	initializeGame()
 end
 
 def insRetPopped
@@ -549,8 +552,8 @@ def forkInsPopOrCatch
 end
 
 def insQuit
-	puts "<Hit any key to exit>";
-	STDIN.gets
+#	puts "<Hit any key to exit>";
+#	STDIN.gets
 	$quit = true
 end
 
@@ -1468,8 +1471,16 @@ end
 
 def initializeGame
 
+	$stack = StackClass.new
+
+	$screen = ScreenClass.new
+
+	$random = Random.new
+
 	rndSeedRandom()
 #	rndSeed(0xff, 0x80, 0x01) # For benchmark mode
+
+	$z[0 .. readWord(0xe) - 1] = $dynmem_backup 
 
 	$pc = readWord(6)
 	$object_table = readWord(0xa)
@@ -1503,6 +1514,8 @@ def initializeGame
 	$default_unicode = "äöüÄÖÜß»«ëïÿËÏáéíóúýÁÉÍÓÚÝàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛåÅøØãñõÃÑÕæÆçÇþðÞÐ£œŒ¡¿"
 
 	updateHeader()
+	
+	$screen.clear
 end
 
 ####################################
@@ -1518,6 +1531,8 @@ $storyfile_name = ARGV[0]
 
 $z = IO.binread($storyfile_name)
 
+$dynmem_backup = $z[0 .. readWord(0xe) - 1]
+
 len = $z.length
 $zcode_version = -1
 $zcode_version = $z[0].ord if len > 0
@@ -1528,18 +1543,14 @@ if len < 64 or len > 512 * 1024 or [1,2,3].include?($zcode_version) == false
 	exit 1
 end
 
-$stack = StackClass.new
-
-$screen = ScreenClass.new
-
-
-$random = Random.new
-
 initializeGame()
 
 $trace = false
 
-# Main game loop
+####################################
+#        Main game loop            #
+####################################
+
 while $quit == false do
 	address = $pc
 	$instruction = readInstruction()
@@ -1554,8 +1565,9 @@ while $quit == false do
 	func = funcs[$instruction['opcode_number']]
 
 	puts "PC=$#{address.to_s(16)}, Ins = #{$instruction}" if $trace
+
 	func.call()
 		
 end
 
-puts "Bye"
+puts "-- End of session --"
