@@ -59,14 +59,15 @@ class ScreenClass
 		@buffer = ""
 		@buffered = true
 		@window = 0
+		@bottom_printed_lines = 0
 	end
 	def clear
 		IO.console.clear_screen
-#		print "\033[2J"
+		IO.console.goto(@screen_height - 1, 0)
 	end
 	def checkScreenSize
 		@screen_height, @screen_width = IO.console.winsize
-		#puts "Your terminal is #{$screen_width} columns wide and #{$screen_height} rows high."
+		@bottom_max_lines = @screen_height - 1
 	end
 	def screen_height
 		@screen_height
@@ -105,6 +106,22 @@ class ScreenClass
 		@window = win
 		IO.console.goto(line, col)
 	end
+	def more
+		IO.console.goto(@screen_height - 1, 0)
+		print " -- MORE --"
+		a = STDIN.gets
+		IO.console.goto(@screen_height - 2, 0)
+		print "                "
+		IO.console.goto(@screen_height - 2, 0)
+		@bottom_printed_lines = 0
+	end
+	def bottom_clear_lines
+		@bottom_printed_lines = 0
+	end
+	def bottom_add_line
+		@bottom_printed_lines += 1
+		more() if @bottom_printed_lines >= @bottom_max_lines - 1
+	end
 	def printBuffered(str, flush = false)
 		if str && str.length > 0
 			if @window == 0 && @buffered
@@ -117,23 +134,51 @@ class ScreenClass
 						else
 							flushBuffer()
 							print "\n"
+							bottom_add_line()
 						end
 						str = str[newlinePos + 1 ..]
 					end
 				end
+				# There are no newlines in str from this point
 				@buffer += str
 				if @buffer.length > @screen_width - 1
 					breakPos = @buffer.rindex(/ /, @screen_width - 1)
 					if breakPos
 						puts @buffer[0 .. breakPos - 1]
+						bottom_add_line()
 						@buffer = @buffer [breakPos + 1 ..]
 					else
 						puts @buffer[0 .. @screen_width - 2]
+						bottom_add_line()
 						@buffer = @buffer[@screen_width - 1 ..]
 					end
 				end
 			elsif @window == 0
-				print str
+				# Bottom window, not buffered
+				newlinePos = 1
+				while str and newlinePos do
+					newlinePos = str.index(/\n/)
+					if newlinePos
+						if newlinePos > 0
+							printBuffered(str.first(newlinePos))
+						else
+							print "\n"
+							bottom_add_line()
+						end
+						str = str[newlinePos + 1 ..]
+					end
+				end
+				# There are no newlines in str from this point
+				while str and !str.empty? do
+					(line, col) = IO.console.cursor()
+					if col + str.length < @screen_width - 2
+						print str
+					else
+						print str[0 .. @screen_width - col - 1] + "\n"
+						bottom_add_line()
+						str = str[@screen_width - col ..]
+					end
+				end
 			else
 				# Statusline (2) or top window (1)
 				(s_line, s_col) = IO.console.cursor()
@@ -1125,7 +1170,8 @@ def insRead
 	### Perform input from keyboard
 	
 	$screen.flushBuffer()
-	$screen.showStatusline	
+	$screen.showStatusline()
+	$screen.bottom_clear_lines()
 	input = STDIN.gets.chomp[0 .. maxchars - 1].downcase
 
 	### Write input into memory, and split it into words
