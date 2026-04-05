@@ -1,3 +1,11 @@
+#!/usr/bin/env ruby
+
+# Krebf, a Z-code interpreter, (c) Fredrik Ramsberg 2026. 
+# License: MIT, see separate file.
+# Home page: https://github.com/fredrikr/krebf
+# Developed and tested on Ruby 3.3.5. Should run using a standard Ruby 
+# installation, without installing any extra gems.
+
 require 'io/console'
 require 'json'
 require 'base64'
