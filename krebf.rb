@@ -102,6 +102,7 @@ class ScreenClass
 		
 		print "\033[0m" # Normal text (reverse off)
 		
+		@window = win
 		IO.console.goto(line, col)
 	end
 	def printBuffered(str, flush = false)
