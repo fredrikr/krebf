@@ -1503,8 +1503,8 @@ end
 def updateHeader
 	flags1 = readByte(1)
 	if $zcode_version < 4
-		flags1 &= (255 - 64 - 32) # Variable pitch font is not default, no screen split 
-		flags1 |= 16 # No statusline
+		# Variable pitch font not default, no screen split, but supports statusline
+		flags1 &= (255 - 64 - 32 - 16)
 	end
 	writeByte(1, flags1)
 
