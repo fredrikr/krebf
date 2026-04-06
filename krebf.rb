@@ -150,11 +150,14 @@ class ScreenClass
 		@window = window if window == 0 or window == 1 && $zcode_version > 2
 		if window == 0
 			IO.console.goto(@cursor[0]['line'], @cursor[0]['col'])
+		elsif window == 1
+			@cursor[1]['line'] = @top_window_start
+			@cursor[1]['col'] = 0
+			IO.console.goto(@cursor[1]['line'], @cursor[1]['col'])
 		end
 	end
 	def checkScreenSize
 		@screen_height, @screen_width = IO.console.winsize
-#		@bottom_max_lines = @screen_height - 1
 	end
 	def screen_height
 		@screen_height
@@ -199,12 +202,14 @@ class ScreenClass
 		@column = col
 	end
 	def more
-		IO.console.goto(@screen_height - 1, 0)
-		print " -- MORE --"
-		a = STDIN.gets
-		IO.console.goto(@screen_height - 2, 0)
-		print "                "
-		IO.console.goto(@screen_height - 2, 0)
+		if @bottom_window_lines > 1
+			IO.console.goto(@screen_height - 1, 0)
+			print " -- MORE --"
+			a = STDIN.gets
+			IO.console.goto(@screen_height - 2, 0)
+			print "                "
+			IO.console.goto(@screen_height - 2, 0)
+		end
 		@bottom_printed_lines = 0
 	end
 	def bottom_clear_lines
@@ -723,6 +728,7 @@ def insRestore
 			$pc = savedata['pc']
 			$stack.stackForSave = savedata['stack']
 			$z[0 .. readWord(0xe) - 1] = Base64.decode64(savedata['dynmem'])
+			updateHeader()
 		end
 	end
 
@@ -1692,7 +1698,7 @@ def updateHeader
 	if $zcode_version < 4
 		# Variable pitch font not default, supports screen split, but supports statusline
 		flags1 &= (255 - 64 - 16)
-		flags |= 32
+		flags1 |= 32
 	end
 	writeByte(1, flags1)
 
