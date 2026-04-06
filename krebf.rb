@@ -9,6 +9,7 @@
 require 'io/console'
 require 'json'
 require 'base64'
+#require 'tty-reader'
 
 $z = nil # Z-machine memory contents
 $quit = false 
@@ -69,15 +70,91 @@ class ScreenClass
 		@window = 0
 		@bottom_printed_lines = 0
 		@column = 0
+		@top_window_start = $zcode_version < 4 ? 1 : 0
+		@top_window_lines = 0
+		@cursor = [
+			{ 'line' => @screen_height - 1, 'col' => 0 },
+			{ 'line' => 0, 'col' => 0 },
+		]
+		IO.console.goto(@cursor[0]['line'], @cursor[0]['col'])
+		unsplit()
 	end
 	def clear
 		IO.console.clear_screen
 		IO.console.goto(@screen_height - 1, 0)
 		@column = 0
 	end
+	def clearLines(start, count)
+		(line, col) = IO.console.cursor()
+		str = ' ' * (@screen_width - 1)
+		IO.console.goto(start, 0)
+		count.times do
+			puts str
+		end
+		IO.console.goto(line, col)
+	end
+	def unsplit
+		if @top_window_lines > 0
+			clearLines(@top_window_start, @top_window_lines)
+		end
+		@top_window_lines = 0
+		@bottom_window_start = @top_window_start + @top_window_lines
+		@bottom_window_lines = @screen_height - @bottom_window_start
+		@cursor[1]['line'] = @top_window_start
+		@cursor[1]['col'] = 0
+	end
+	def split(top_lines)
+		old_lines = @top_window_lines
+		top_lines = 0 if top_lines < 0
+		top_lines = @top_window_lines + @bottom_window_lines if 
+				top_lines > @top_window_lines + @bottom_window_lines
+#		puts "SPLIT#{@top_window_lines},#{top_lines}"
+		if top_lines != @top_window_lines
+			if @top_window_lines > 0
+				# Resize
+				if top_lines < @top_window_lines
+					@top_window_content = @top_window_content.take(top_lines)
+					clearLines(@top_window_start + top_lines, @top_window_lines - top_lines)
+				else
+					(top_lines - @top_window_lines).times do
+						@top_window_content.push ' ' * (@screen_width - 1)
+					end
+				end
+			else
+				@top_window_content = []
+				top_lines.times do
+					@top_window_content.push ' ' * (@screen_width - 1)
+				end
+			end
+
+			@top_window_lines = top_lines
+			@bottom_window_start = @top_window_start + @top_window_lines
+			@bottom_window_lines = @screen_height - @bottom_window_start
+			if old_lines == 0
+				@cursor[1]['line'] = @top_window_start
+				@cursor[1]['col'] = 0
+			end
+		end
+		refreshTopWindow()
+	end
+	def refreshTopWindow
+		return if @top_window_lines == 0
+		(line, col) = IO.console.cursor()
+		IO.console.goto(@top_window_start, 0)
+		@top_window_content.each do |str|
+			puts str
+		end
+		IO.console.goto(line, col)
+	end
+	def selectWindow(window)
+		@window = window if window == 0 or window == 1 && $zcode_version > 2
+		if window == 0
+			IO.console.goto(@cursor[0]['line'], @cursor[0]['col'])
+		end
+	end
 	def checkScreenSize
 		@screen_height, @screen_width = IO.console.winsize
-		@bottom_max_lines = @screen_height - 1
+#		@bottom_max_lines = @screen_height - 1
 	end
 	def screen_height
 		@screen_height
@@ -135,7 +212,7 @@ class ScreenClass
 	end
 	def bottom_add_line
 		@bottom_printed_lines += 1
-		more() if @bottom_printed_lines >= @bottom_max_lines - 1
+		more() if @bottom_printed_lines >= @bottom_window_lines - 1
 	end
 	def printBuffered(str, flush = false)
 		if str && str.length > 0
@@ -189,7 +266,6 @@ class ScreenClass
 				end
 				# There are no newlines in str from this point
 				while str and !str.empty? do
-#					(line, col) = IO.console.cursor()
 					if @column + str.length < @screen_width - 2
 						print str
 						@column += str.length
@@ -200,16 +276,36 @@ class ScreenClass
 						str = str[@screen_width - col ..]
 					end
 				end
+			elsif @window == 1
+				# Top window (1)
+				newlinePos = 1
+				while str and newlinePos do
+					newlinePos = str.index(/\n/)
+					if newlinePos
+						if newlinePos > 0
+							printBuffered(str.first(newlinePos))
+						else
+							@cursor[1]['line'] += 1 if @cursor[1]['line'] < @screen_height - 1 
+							@cursor[1]['col'] = 0
+						end
+						str = str[newlinePos + 1 ..]
+					end
+				end
+				# There are no newlines in str from this point
+				if !str.empty? and @cursor[1]['col'] < @screen_width - 2
+					toprint = str[0 .. @screen_width - @cursor[1]['col'] - 2]
+					line = @cursor[1]['line'] - @top_window_start
+					split(line + 1) if line > @top_window_lines - 1
+					@top_window_content[line][@cursor[1]['col'], toprint.length] = toprint
+					@cursor[1]['col'] += toprint.length
+				end
 			else
-				# Statusline (2) or top window (1)
-#				(s_line, s_col) = IO.console.cursor()
-#				if @screen_width - 1 < s_col + str.length
+				# Statusline (2)
 				if @column < @screen_width - 2
 					toprint = str[0 .. @screen_width - @column - 2]
 					print toprint
 					@column += toprint.length
 				end
-#				end
 			end
 		end
 		flushBuffer() if flush
@@ -219,6 +315,10 @@ class ScreenClass
 		@column += @buffer.length
 		@buffer = ""
 	end
+	def debug
+		puts @top_window_content.to_s
+	end
+
 end
 
 class StackClass
@@ -673,7 +773,10 @@ end
 
 def insShowStatus
 	# Works like NOP in v4+
-	$screen.showStatusline if $zcode_version < 4
+	if $zcode_version < 4
+		$screen.showStatusline()
+		$screen.refreshTopWindow()
+	end
 end
 
 def insVerify
@@ -1195,6 +1298,7 @@ def insRead
 	
 	$screen.flushBuffer()
 	$screen.showStatusline()
+	$screen.refreshTopWindow()
 	$screen.bottom_clear_lines()
 	input = STDIN.gets.chomp[0 .. maxchars - 1].downcase
 
@@ -1345,6 +1449,19 @@ def insPull
 	setVar($args[0], value)
 end
 
+def insSplitWindow
+	lines = $args[0]
+	if lines == 0
+		$screen.unsplit()
+	else
+		$screen.split(lines)
+	end
+end
+
+def insSetWindow
+	$screen.selectWindow($args[0])
+end
+
 $opcode_routines = {
 	OPCODE_TYPE_0OP => [
 		method(:insRtrue),
@@ -1423,8 +1540,8 @@ $opcode_routines = {
 		method(:insRandom),
 		method(:insPush),
 		method(:insPull),
-		nil, #split_window v3+
-		nil, #set_window v3+
+		method(:insSplitWindow),
+		method(:insSetWindow),
 		nil, #call_vs2 v4+
 		nil, #erase_window v4+
 		nil, #erase_line v4+
@@ -1585,9 +1702,9 @@ def updateHeader
 		writeByte(0x1e, 2) # Interpreter = Apple IIe
 		writeByte(0x1f, 1) # Interpreter version = 1
 		writeByte(0x20, $screen.screen_height) # Screen height in characters
-		writeByte(0x21, $screen.screen_width) # Screen width in characters
+		writeByte(0x21, $screen.screen_width - 1) # Screen width in characters
 		if $zcode_version > 4
-			writeWord(0x22, $screen.screen_width) # Screen width in units
+			writeWord(0x22, $screen.screen_width - 1) # Screen width in units
 			writeWord(0x24, $screen.screen_height)  # Screen height in units
 			writeByte(0x26, 1) # Font width in units
 			writeByte(0x27, 1) # Font height in units
@@ -1672,6 +1789,8 @@ if len < 64 or len > 512 * 1024 or [1,2,3].include?($zcode_version) == false
 	exit 1
 end
 
+#$tty_reader = TTY::Reader.new
+
 initializeGame()
 
 $trace = false
@@ -1699,4 +1818,14 @@ while $quit == false do
 		
 end
 
+#	p "Please press!"
+#	done = false
+#	while !done do
+#		key = $tty_reader.read_keypress(nonblock: true)
+#		if key
+#			puts "Key is " + key + ", z is " + z.to_s
+#			done = true
+#		end
+#	end
 puts "-- End of session --"
+
