@@ -215,7 +215,7 @@ class ScreenClass
 			print "                "
 			IO.console.goto(@screen_height - 2, 0)
 		end
-		@bottom_printed_lines = 0
+		bottom_clear_lines()
 	end
 	def bottom_clear_lines
 		@bottom_printed_lines = 0
@@ -234,6 +234,7 @@ class ScreenClass
 						if newlinePos > 0
 							printBuffered(str[0, newlinePos], true)
 							print "\n"
+							bottom_add_line()
 						else
 							flushBuffer()
 							print "\n"
@@ -1686,6 +1687,10 @@ def insInputStream
 	$streams.activateInput($args[0])
 end
 
+def insSoundEffect
+	print "\007" if $args.empty? or [1,2].include? $args[0]
+end
+
 $opcode_routines = {
 	OPCODE_TYPE_0OP => [
 		method(:insRtrue),
@@ -1775,7 +1780,7 @@ $opcode_routines = {
 		nil, #buffer_mode v4+
 		method(:insOutputStream),
 		method(:insInputStream),
-		nil, #sound_effect v3+
+		method(:insSoundEffect),
 		nil, #read_char v4+
 		nil, #scan_table v4+
 		nil, #not v5+
@@ -2000,6 +2005,7 @@ if ARGV.length < 1
 	puts "Usage: ruby krebf.rb <zcode-file>"
 	exit 1
 end
+
 
 $storyfile_name = ARGV[0]
 
