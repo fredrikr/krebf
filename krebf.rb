@@ -14,6 +14,8 @@ require 'base64'
 $z = nil # Z-machine memory contents
 $quit = false 
 
+$debug = []
+
 FORM_VAR = 1
 FORM_SHORT = 2
 FORM_LONG = 3
@@ -156,6 +158,9 @@ class ScreenClass
 			IO.console.goto(@cursor[1]['line'], @cursor[1]['col'])
 		end
 	end
+	def window
+		@window
+	end
 	def checkScreenSize
 		@screen_height, @screen_width = IO.console.winsize
 	end
@@ -227,7 +232,8 @@ class ScreenClass
 					newlinePos = str.index(/\n/)
 					if newlinePos
 						if newlinePos > 0
-							printBuffered(str.first(newlinePos), true)
+							printBuffered(str[0, newlinePos], true)
+							print "\n"
 						else
 							flushBuffer()
 							print "\n"
@@ -260,7 +266,8 @@ class ScreenClass
 					newlinePos = str.index(/\n/)
 					if newlinePos
 						if newlinePos > 0
-							printBuffered(str.first(newlinePos))
+#							printBuffered(str.first(newlinePos))
+							printBuffered(str[0, newlinePos])
 						else
 							print "\n"
 							@column = 0
@@ -288,7 +295,8 @@ class ScreenClass
 					newlinePos = str.index(/\n/)
 					if newlinePos
 						if newlinePos > 0
-							printBuffered(str.first(newlinePos))
+#							printBuffered(str.first(newlinePos))
+							printBuffered(str[0, newlinePos])
 						else
 							@cursor[1]['line'] += 1 if @cursor[1]['line'] < @screen_height - 1 
 							@cursor[1]['col'] = 0
@@ -324,7 +332,194 @@ class ScreenClass
 		puts @top_window_content.to_s
 	end
 
-end
+end # ScreenClass
+
+class StreamsClass
+	def initialize(#screenObject
+		)
+#		@screenObject = screenObject
+		@outputStreams = [
+				nil,
+				{ 'active' => true },  # screen
+				{ 'active' => false }, # transcript
+				{ 'active' => false }, # memory
+				{ 'active' => false }, # command transcript
+		]
+		@inputStreams = [
+				{ 'active' => true },  # keyboard
+				{ 'active' => false }, # command file
+		]
+		@commands = ""
+	end
+	def activateInput(stream)
+		return false if !stream or stream < 0 or stream > 1
+		return true if @inputStreams[stream]['active']
+		if stream == 0
+			@inputStreams[0]['active'] = true
+			@inputStreams[1]['active'] = false
+			@commands = ""
+		else
+			$screen.printBuffered("Please enter filename for command file to read: ", true)
+			filename = STDIN.gets.chomp
+			if filename.length == 0
+				return false
+			elsif filename =~/\.\.|~|\// 
+				puts "Illegal characters in filename."
+				return false
+			elsif !File.exist?(filename)
+				puts "File not found."
+				return false
+			else
+				@commands = IO.read(filename)
+				@inputStreams[1]['active'] = true
+				@inputStreams[0]['active'] = false
+				return true
+			end
+		end
+	end
+	def readInput
+		if @inputStreams[0]['active']
+			command = STDIN.gets.chomp
+		else
+			if @commands.empty?
+				activateInput(0)
+				command = readInput()
+			else
+				pos = @commands.index(/\n/)
+				if pos
+					command = @commands[0, pos]
+					@commands = @commands[pos + 1 ..]
+				else
+					command = @commands
+#					$screen.printBuffered ">#{command}<"
+					@commands = ""
+				end
+				printASCIICommand(command, true)
+			end
+		end
+		command
+	end
+	def activateOutput(stream, arg = nil)
+		return false if !stream or stream < 1 or stream > 4
+		hash = @outputStreams[stream]
+		return true if hash['active']
+		if stream == 2 and !hash.has_key? 'filename'
+			$screen.printBuffered("Please enter filename for transcript: ", true)
+			filename = STDIN.gets.chomp
+			if filename.length == 0
+				return false
+			elsif filename =~/\.\.|~|\// 
+				puts "Illegal characters in filename."
+				return false
+			elsif File.exist?(filename)
+				puts "File exists."
+				return false
+			else
+				IO.write(filename,'')
+				hash['active'] = true
+				hash['filename'] = filename
+				writeWord(0x10, readWord(0x10) | 1)
+				return true
+			end
+		elsif stream == 3
+			hash['stack'] = [] unless hash.has_key? 'stack'
+			fatalErr("Too many active memory streams!") if hash['stack'].length >= 16
+			hash['active'] = true
+			arg2 = arg + 2
+			hash['stack'] = hash['stack'].push({'start' => arg, 'current' => arg2 })
+#			$screen.printBuffered(@outputStreams.to_s, true)
+		elsif stream == 4
+			$screen.printBuffered("Please enter filename for command recording: ", true)
+			filename = STDIN.gets.chomp
+			if filename.length == 0
+				return false
+			elsif filename =~/\.\.|~|\// 
+				puts "Illegal characters in filename."
+				return false
+			elsif File.exist?(filename)
+				puts "File exists."
+				return false
+			else
+				IO.write(filename,'')
+				hash['active'] = true
+				hash['filename'] = filename
+				return true
+			end
+		end
+	end
+	def inactivateOutput(stream, reset = false)
+		return false if !stream or stream < 1 or stream > 4
+		hash = @outputStreams[stream]
+		return true if !hash['active']
+		hash['active'] = false
+#		$screen.printBuffered @outputStreams.to_s
+		if stream == 2
+			writeWord(0x10, readWord(0x10) & 0xfffe)
+		elsif stream == 3
+			if reset
+				hash.delete 'stack' if hash.has_key? 'stack'
+				return true
+			end
+			stack = hash['stack']
+			fatalErr("No active memory stream to close!") unless stack and !stack.empty?
+			frame = stack.pop
+			writeWord(frame['start'], frame['current'] - frame['start'] - 2)
+			hash.delete 'stack' if stack.empty?
+		end
+		true
+	end
+	def ZSCIItoASCII (str)
+		result = ""
+		str.each_char do |char|
+			code = char.ord
+			result +=
+				case
+					when (code >= 155 and code <= 223) then $default_unicode[code - 155]
+					when code == 13 then "\n"
+					else char
+				end
+		end
+		result
+	end
+	def printZSCIIString(str, flush = false)
+		if @outputStreams[3]['active']
+			frame = @outputStreams[3]['stack'].last
+			address = frame['current']
+			str.each_char do |char|
+				writeByte(address, char.ord)
+				address += 1
+			end
+			frame['current'] = address
+		else
+			strASCII = ZSCIItoASCII(str)
+			if @outputStreams[1]['active']
+				$screen.printBuffered(strASCII, flush)
+			end
+			if @outputStreams[2]['active'] and $screen.window == 0
+				File.open(@outputStreams[2]['filename'], 'a') do |file|
+					file.print strASCII
+				end
+			end
+		end
+	end
+	def printASCIICommand(strASCII, echoToScreen = false)
+		strASCII = strASCII.chomp()
+		if @outputStreams[1]['active'] and echoToScreen
+#			strASCII.each_char { |x| print"#{x.ord}," }
+			$screen.printBuffered(strASCII + "\n", true)
+		end
+		if @outputStreams[2]['active']
+			File.open(@outputStreams[2]['filename'], 'a') do |file|
+				file.puts strASCII
+			end
+		end
+		if @outputStreams[4]['active']
+			File.open(@outputStreams[4]['filename'], 'a') do |file|
+				file.puts strASCII
+			end
+		end
+	end
+end # StreamsClass
 
 class StackClass
 	def initialize
@@ -426,7 +621,7 @@ class StackClass
 		end
 		@pushed.pop
 	end
-end
+end #StackClass
 
 def readGlobal(n)
 	readWord(2 * n + $global_base)
@@ -541,13 +736,14 @@ def setChild(objaddress, child)
 	end
 end
 
-def printAtAddress(address)
+def printAtAddress(address, return_string = false)
 	word = 0
 	alphabet_offset_lock = 0
 	alphabet_offset = 0
 	abbrev_bank = 0
 	escape_step = 0
 	escape_code = 0
+	str = ""
 	until word & 0x8000 != 0 do
 		word = readWord(address)
 		address += 2
@@ -561,26 +757,19 @@ def printAtAddress(address)
 			if escape_step > 0
 				escape_code = (escape_code << 5) | value
 				escape_step -= 1
-				if escape_step == 0
-					escape_code &= 0xff
-					if escape_code >= 155 and escape_code <= 223
-						char = $default_unicode[escape_code - 155]
-					else
-						char = escape_code.chr
-					end
-				end
+				char = (escape_code & 0xff).chr if escape_step == 0
 			elsif abbrev_bank > 0
 				alphabet_offset = 0
 				abbpointer = $abbrev_table + 2 * (32 * abbrev_bank - 32 + value)
 				abbaddress = 2 * readWord(abbpointer)
-				printAtAddress(abbaddress)
+				str += printAtAddress(abbaddress, true)
 				abbrev_bank = 0
 			elsif alphabet_offset == 2 and value == 6
 				 alphabet_offset = 0
 				 escape_step = 2
 				 escape_code = 0
 			elsif alphabet_offset == 2 and value == 7 and $zcode_version > 1
-				char = 10.chr
+				char = 13.chr
 			elsif value > 5
 				char = $alphabet[26 * alphabet_offset + value - 6]
 				if char.ord >= 155 and char.ord <= 223
@@ -590,7 +779,7 @@ def printAtAddress(address)
 				char = ' '
 			elsif value == 1
 				if $zcode_version == 1 then
-					char = 10.chr
+					char = 13.chr
 				else
 					abbrev_bank = 1
 				end
@@ -622,14 +811,22 @@ def printAtAddress(address)
 				end
 			end
 			if char
-				$screen.printBuffered char.to_s
+				str += char
+				if return_string == false and str.length > 79
+					$streams.printZSCIIString str.to_s # char.to_s
+					str = ""
+				end
 				alphabet_offset = alphabet_offset_lock
 			end
 		end
 		
 	end
 
-	return address
+	return str if return_string
+	
+	$streams.printZSCIIString str unless str.empty?
+
+	address
 end
 
 def toSigned(num)
@@ -662,7 +859,7 @@ end
 
 def insPrintRet
 	$pc = printAtAddress($pc)
-	$screen.printBuffered "\n";
+	$streams.printZSCIIString "\n";
 	$stack.return 1
 end
 
@@ -672,7 +869,7 @@ end
 
 def insSave
 	success = false
-	$screen.printBuffered("Please enter a filename: ", true)
+	$streams.printZSCIIString("Please enter a filename: ", true)
 	filename = STDIN.gets.chomp
 	if filename.length == 0
 		nil
@@ -707,7 +904,7 @@ end
 
 def insRestore
 	success = false
-	$screen.printBuffered("Please enter a filename: ", true)
+	$streams.printZSCIIString("Please enter a filename: ", true)
 	filename = STDIN.gets.chomp
 	if filename.length == 0
 		nil
@@ -729,6 +926,7 @@ def insRestore
 			$stack.stackForSave = savedata['stack']
 			$z[0 .. readWord(0xe) - 1] = Base64.decode64(savedata['dynmem'])
 			updateHeader()
+			writeWord(0x10, readWord(0x10) & 0xfffe | $transcriptBit)
 		end
 	end
 
@@ -749,6 +947,7 @@ end
 
 def insRestart
 	initializeGame()
+	writeWord(0x10, readWord(0x10) & 0xfffe | $transcriptBit)
 end
 
 def insRetPopped
@@ -774,7 +973,7 @@ def insQuit
 end
 
 def insNewLine
-	$screen.printBuffered "\n";
+	$streams.printZSCIIString "\n";
 end
 
 def insShowStatus
@@ -1306,7 +1505,9 @@ def insRead
 	$screen.showStatusline()
 	$screen.refreshTopWindow()
 	$screen.bottom_clear_lines()
-	input = STDIN.gets.chomp[0 .. maxchars - 1].downcase
+#	input = STDIN.gets.chomp[0 .. maxchars - 1].downcase
+	input = $streams.readInput()[0 .. maxchars - 1].downcase
+	$streams.printASCIICommand(input)
 
 	### Write input into memory, and split it into words
 
@@ -1374,11 +1575,11 @@ def insPrintChar
 	
 	char = $default_unicode[charcode - 155] if charcode >= 155 and charcode <= 223
 	
-	$screen.printBuffered char
+	$streams.printZSCIIString char
 end
 
 def insPrintNum
-	$screen.printBuffered "#{toSigned($args[0])}"
+	$streams.printZSCIIString "#{toSigned($args[0])}"
 end
 
 #######################################
@@ -1468,6 +1669,23 @@ def insSetWindow
 	$screen.selectWindow($args[0])
 end
 
+def insOutputStream
+	stream = toSigned($args[0])
+#	$screen.printBuffered "STREAM IS #{stream}"
+	if stream < 0
+		$streams.inactivateOutput(-stream)
+	elsif stream == 3
+		address = $args[1]
+		$streams.activateOutput(stream, address)
+	else
+		$streams.activateOutput(stream)
+	end
+end
+
+def insInputStream
+	$streams.activateInput($args[0])
+end
+
 $opcode_routines = {
 	OPCODE_TYPE_0OP => [
 		method(:insRtrue),
@@ -1555,8 +1773,8 @@ $opcode_routines = {
 		nil, #get_cursor v4+
 		nil, #set_text_style v4+
 		nil, #buffer_mode v4+
-		nil, #output_stream v3+
-		nil, #input_stream v3+
+		method(:insOutputStream),
+		method(:insInputStream),
 		nil, #sound_effect v3+
 		nil, #read_char v4+
 		nil, #scan_table v4+
@@ -1729,6 +1947,9 @@ def initializeGame
 	$screen = ScreenClass.new
 
 	$random = Random.new
+	
+	$streams.activateOutput(1)
+	$streams.inactivateOutput(3, true)
 
 	rndSeedRandom()
 #	rndSeed(0xff, 0x80, 0x01) # For benchmark mode
@@ -1798,7 +2019,12 @@ end
 
 #$tty_reader = TTY::Reader.new
 
+$streams = StreamsClass.new( #:screenObject => $screen
+)
+
 initializeGame()
+
+$transcriptBit = 0
 
 $trace = false
 
@@ -1822,17 +2048,18 @@ while $quit == false do
 	puts "PC=$#{address.to_s(16)}, Ins = #{$instruction}" if $trace
 
 	func.call()
-		
+	
+	newtrans = readWord(0x10) & 1
+	if newtrans != $transcriptBit
+		$transcriptBit = newtrans
+		if $transcriptBit == 1
+			$streams.activateOutput(2)
+		else
+			$streams.inactivateOutput(2)
+		end
+	end
 end
 
-#	p "Please press!"
-#	done = false
-#	while !done do
-#		key = $tty_reader.read_keypress(nonblock: true)
-#		if key
-#			puts "Key is " + key + ", z is " + z.to_s
-#			done = true
-#		end
-#	end
 puts "-- End of session --"
 
+#puts $debug.to_s
