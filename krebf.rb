@@ -71,9 +71,13 @@ class ScreenClass
 		@buffered = true
 		@window = 0
 		@bottom_printed_lines = 0
-		@column = 0
+#		@cursor[0]['col'] = 0
 		@top_window_start = $zcode_version < 4 ? 1 : 0
 		@top_window_lines = 0
+		@window_content = []
+		@screen_height.times do
+			@window_content.push ' ' * (@screen_width - 1)
+		end
 		@cursor = [
 			{ 'line' => @screen_height - 1, 'col' => 0 },
 			{ 'line' => 0, 'col' => 0 },
@@ -84,7 +88,7 @@ class ScreenClass
 	def clear
 		IO.console.clear_screen
 		IO.console.goto(@screen_height - 1, 0)
-		@column = 0
+		@cursor[0]['col'] = 0
 	end
 	def clearLines(start, count)
 		(line, col) = IO.console.cursor()
@@ -115,17 +119,17 @@ class ScreenClass
 			if @top_window_lines > 0
 				# Resize
 				if top_lines < @top_window_lines
-					@top_window_content = @top_window_content.take(top_lines)
+					@window_content = @window_content.take(top_lines)
 					clearLines(@top_window_start + top_lines, @top_window_lines - top_lines)
 				else
 					(top_lines - @top_window_lines).times do
-						@top_window_content.push ' ' * (@screen_width - 1)
+						@window_content.push ' ' * (@screen_width - 1)
 					end
 				end
 			else
-				@top_window_content = []
+				@window_content = []
 				top_lines.times do
-					@top_window_content.push ' ' * (@screen_width - 1)
+					@window_content.push ' ' * (@screen_width - 1)
 				end
 			end
 
@@ -143,7 +147,7 @@ class ScreenClass
 		return if @top_window_lines == 0
 		(line, col) = IO.console.cursor()
 		IO.console.goto(@top_window_start, 0)
-		@top_window_content.each do |str|
+		@window_content.each do |str|
 			puts str
 		end
 		IO.console.goto(line, col)
@@ -175,7 +179,7 @@ class ScreenClass
 		win = @window
 		@window = 2
 		IO.console.goto(0, 0)
-		@column = 0
+		@cursor[0]['col'] = 0
 
 		print "\033[7m " # Reverse text
 
@@ -185,7 +189,7 @@ class ScreenClass
 
 		if $zcode_version == 3 and readByte(1) & 2 != 0
 			IO.console.goto(0, @screen_width - 18)
-			@column = @screen_width - 18
+			@cursor[0]['col'] = @screen_width - 18
 			hbase = readGlobal(17)
 			h = hbase > 12 ? hbase - 12 : (hbase == 0 ? 12 : hbase)
 			m = readGlobal(18).to_s.rjust(2,'0')
@@ -193,10 +197,10 @@ class ScreenClass
 			printBuffered " Time: #{h}:#{m} #{ampm}   "
 		else
 			IO.console.goto(0, @screen_width - 25)
-			@column = @screen_width - 25
+			@cursor[0]['col'] = @screen_width - 25
 			printBuffered " Score: #{readGlobal(17)}   "
 			IO.console.goto(0, @screen_width - 13)
-			@column = @screen_width - 13
+			@cursor[0]['col'] = @screen_width - 13
 			printBuffered " Moves: #{readGlobal(18)}   "
 		end
 		
@@ -204,7 +208,7 @@ class ScreenClass
 		
 		@window = win
 		IO.console.goto(line, col)
-		@column = col
+		@cursor[0]['col'] = col
 	end
 	def more
 		if @bottom_window_lines > 1
@@ -224,6 +228,56 @@ class ScreenClass
 		@bottom_printed_lines += 1
 		more() if @bottom_printed_lines >= @bottom_window_lines - 1
 	end
+	def refreshBottomWindow
+		if @bottom_window_lines > 0
+			@bottom_window_lines.times do |i|
+				IO.console.goto(@bottom_window_start + i, 0)
+				print @window_content[@bottom_window_start + i]
+			end
+#			IO.console.goto(@screen_height - 2, 0)
+			IO.console.goto(@cursor[0]['line'], @cursor[0]['col'])
+		end
+	end
+	def bottomScroll
+		a = @window_content.length
+		@window_content[@bottom_window_start, @bottom_window_lines] =
+			@window_content[@bottom_window_start + 1, @bottom_window_lines - 1] +
+				[' ' * (@screen_width - 1)]
+		b = @window_content.length
+		if a != b 
+			puts "ARRGH! #{a} #{b}"
+			exit 1
+		end
+		refreshBottomWindow()
+#		(@bottom_window_lines - 1).times do |i|
+#			@window_content[
+#		end
+	end
+	def newline
+		if @window == 0
+			if @cursor[0]['line'] >= @bottom_window_start + @bottom_window_lines - 1
+				bottomScroll()
+			else
+				@cursor[0]['line'] += 1
+			end	
+			@cursor[0]['col'] = 0
+		else
+			if @cursor[1]['line'] < @bottom_window_start + @bottom_window_lines - 1
+				@cursor[1]['line'] += 1
+			end	
+			@cursor[0]['col'] = 0
+		end
+	end
+	def bottomPrintPartialLine(str)
+		line = @cursor[0]['line']
+#		print "(#{line}/#{@screen_height},#{@window},#{@window_content.length})"
+		if @window_content[line] == nil
+			puts @window_content.length
+			exit 1
+		end
+		@window_content[line][@cursor[0]['col'], str.length] = str
+		@cursor[0]['col'] += str.length
+	end
 	def printBuffered(str, flush = false)
 		if str && str.length > 0
 			if @window == 0 && @buffered
@@ -233,12 +287,12 @@ class ScreenClass
 					if newlinePos
 						if newlinePos > 0
 							printBuffered(str[0, newlinePos], true)
-							print "\n"
+							newline()
 							bottom_add_line()
 						else
 							flushBuffer()
-							print "\n"
-							@column = 0
+							newline()
+							@cursor[0]['col'] = 0
 							bottom_add_line()
 						end
 						str = str[newlinePos + 1 ..]
@@ -249,13 +303,18 @@ class ScreenClass
 				if @buffer.length > @screen_width - 1
 					breakPos = @buffer.rindex(/ /, @screen_width - 1)
 					if breakPos
-						puts @buffer[0 .. breakPos - 1]
-						@column = 0
+
+#						puts @buffer[0 .. breakPos - 1]
+						bottomPrintPartialLine @buffer[0 .. breakPos - 1]
+						newline()
+						
 						bottom_add_line()
 						@buffer = @buffer [breakPos + 1 ..]
 					else
-						puts @buffer[0 .. @screen_width - 2]
-						@column = 0
+#						puts @buffer[0 .. @screen_width - 2]
+						bottomPrintPartialLine @buffer[0 .. @screen_width - 2]
+						newline()
+
 						bottom_add_line()
 						@buffer = @buffer[@screen_width - 1 ..]
 					end
@@ -270,8 +329,8 @@ class ScreenClass
 #							printBuffered(str.first(newlinePos))
 							printBuffered(str[0, newlinePos])
 						else
-							print "\n"
-							@column = 0
+							newline()
+							@cursor[0]['col'] = 0
 							bottom_add_line()
 						end
 						str = str[newlinePos + 1 ..]
@@ -279,12 +338,13 @@ class ScreenClass
 				end
 				# There are no newlines in str from this point
 				while str and !str.empty? do
-					if @column + str.length < @screen_width - 2
-						print str
-						@column += str.length
+					if @cursor[0]['col'] + str.length < @screen_width - 2
+						bottomPrintPartialLine str
 					else
-						print str[0 .. @screen_width - col - 1] + "\n"
-						@column = 0
+#						print str[0 .. @screen_width - col - 1]
+						bottomPrintPartialLine str[0 .. @screen_width - col - 1]
+						newline()
+#						@cursor[0]['col'] = 0
 						bottom_add_line()
 						str = str[@screen_width - col ..]
 					end
@@ -299,8 +359,9 @@ class ScreenClass
 #							printBuffered(str.first(newlinePos))
 							printBuffered(str[0, newlinePos])
 						else
-							@cursor[1]['line'] += 1 if @cursor[1]['line'] < @screen_height - 1 
-							@cursor[1]['col'] = 0
+							newline()
+#							@cursor[1]['line'] += 1 if @cursor[1]['line'] < @screen_height - 1 
+#							@cursor[1]['col'] = 0
 						end
 						str = str[newlinePos + 1 ..]
 					end
@@ -310,27 +371,29 @@ class ScreenClass
 					toprint = str[0 .. @screen_width - @cursor[1]['col'] - 2]
 					line = @cursor[1]['line'] - @top_window_start
 					split(line + 1) if line > @top_window_lines - 1
-					@top_window_content[line][@cursor[1]['col'], toprint.length] = toprint
+					@window_content[line][@cursor[1]['col'], toprint.length] = toprint
 					@cursor[1]['col'] += toprint.length
 				end
 			else
 				# Statusline (2)
-				if @column < @screen_width - 2
-					toprint = str[0 .. @screen_width - @column - 2]
+				if @cursor[0]['col'] < @screen_width - 2
+					toprint = str[0 .. @screen_width - @cursor[0]['col'] - 2]
 					print toprint
-					@column += toprint.length
+					@cursor[0]['col'] += toprint.length
 				end
 			end
 		end
 		flushBuffer() if flush
 	end
 	def flushBuffer
-		print @buffer
-		@column += @buffer.length
-		@buffer = ""
+		if @buffer.length > 0
+			bottomPrintPartialLine @buffer
+			refreshBottomWindow()
+			@buffer = ""
+		end
 	end
 	def debug
-		puts @top_window_content.to_s
+		puts @window_content.to_s
 	end
 
 end # ScreenClass
@@ -1507,8 +1570,9 @@ def insRead
 	$screen.refreshTopWindow()
 	$screen.bottom_clear_lines()
 #	input = STDIN.gets.chomp[0 .. maxchars - 1].downcase
+#	IO.console.goto($screen.screen_height - 2, 0)
 	input = $streams.readInput()[0 .. maxchars - 1].downcase
-	$streams.printASCIICommand(input)
+	$streams.printASCIICommand(input, true)
 
 	### Write input into memory, and split it into words
 
