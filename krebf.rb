@@ -1670,6 +1670,16 @@ def insSetWindow
 	$screen.selectWindow($args[0])
 end
 
+def insEraseWindow
+	puts "Erase Window"
+	exit 1
+end
+
+def insEraseLine
+	puts "Erase Line"
+	exit 1	
+end
+
 def insOutputStream
 	stream = toSigned($args[0])
 #	$screen.printBuffered "STREAM IS #{stream}"
@@ -1771,9 +1781,9 @@ $opcode_routines = {
 		method(:insPull),
 		method(:insSplitWindow),
 		method(:insSetWindow),
-		nil, #call_vs2 v4+
-		nil, #erase_window v4+
-		nil, #erase_line v4+
+		method(:insCallS), #call_vs2 v4+
+		method(:insEraseWindow), #erase_window v4+
+		method(:insEraseLine), #erase_line v4+
 		nil, #set_cursor v4+
 		nil, #get_cursor v4+
 		nil, #set_text_style v4+
@@ -1785,7 +1795,7 @@ $opcode_routines = {
 		nil, #scan_table v4+
 		nil, #not v5+
 		method(:insCallN), #call_vn v5+
-		nil, #call_vn2 v5+
+		method(:insCallN), #call_vn2 v5+
 		nil, #tokenise v5+
 		nil, #encode v5+
 		nil, #copy_table v5+
@@ -1885,11 +1895,23 @@ def readInstruction
 			end
 			opcode_number = opcode & 0b11111
 			operand_type_byte = readByteAtPC()
+			operand_type_byte_2 = -1
+			if opcode_type == OPCODE_TYPE_VAR and 
+						[0xc, 0x1a].include? opcode_number
+				operand_type_byte_2 = readByteAtPC()
+			end
 			operand_types = [
 					(operand_type_byte & 0b11000000) >> 6,
 					(operand_type_byte & 0b00110000) >> 4,
 					(operand_type_byte & 0b00001100) >> 2,
 					(operand_type_byte & 0b00000011) ]
+			if operand_type_byte_2 >= 0
+				operand_types += [
+						(operand_type_byte_2 & 0b11000000) >> 6,
+						(operand_type_byte_2 & 0b00110000) >> 4,
+						(operand_type_byte_2 & 0b00001100) >> 2,
+						(operand_type_byte_2 & 0b00000011) ]
+			end
 		else
 			fatalErr "ERROR: Incorrect form!"
 	end
@@ -2017,9 +2039,9 @@ len = $z.length
 $zcode_version = -1
 $zcode_version = $z[0].ord if len > 0
 
-if len < 64 or len > 512 * 1024 or [1,2,3].include?($zcode_version) == false
+if len < 64 or len > 512 * 1024 or $zcode_version.to_s !~ /^[1234]$/
 	puts "The file #{$storyfile_name} doesn't seem to be a valid Z-code file, " +
-			"using Z-code version 1,2 or 3."
+			"using Z-code version 1, 2, 3 or 4."
 	exit 1
 end
 
