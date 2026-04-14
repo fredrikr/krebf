@@ -112,28 +112,38 @@ class ScreenClass
 	end
 	def split(top_lines)
 		old_lines = @top_window_lines
+		clear_from = -1
+		clear_to = -1
 		top_lines = 0 if top_lines < 0
 		top_lines = @top_window_lines + @bottom_window_lines if 
 				top_lines > @top_window_lines + @bottom_window_lines
 		if top_lines != @top_window_lines
 			if @top_window_lines > 0
 				# Resize
-				nil
-#				if top_lines < @top_window_lines
+				if top_lines < @top_window_lines
+					# Top window gets smaller, clear part that is now returned to bottom window
+					clear_from = @top_window_start + top_lines
+					clear_to = @bottom_window_start - 1
 #					@window_content = @window_content.take(top_lines)
 #					clearLines(@top_window_start + top_lines, @top_window_lines - top_lines)
-#				else
+				else
+					# Top window gets bigger, clear new part of top window
+					clear_from = @top_window_start + @top_window_lines
+					clear_to = @top_window_start + top_lines - 1
 #					(top_lines - @top_window_lines).times do
 #						@window_content.push ' ' * (@screen_width - 1)
 #					end
-#				end
+				end
 			else
-				nil
-				top_lines.times do |i|
-					@window_content[@top_window_start + i] = ' ' * (@screen_width - 1)
+				clear_from = @top_window_start
+				clear_to = @top_window_start + top_lines - 1				
+			end
+			
+			if clear_from >= 0
+				clear_from.upto(clear_to) do |i|
+					@window_content[i] = ' ' * (@screen_width - 1)
 				end
 			end
-
 			@top_window_lines = top_lines
 			@bottom_window_start = @top_window_start + @top_window_lines
 			@bottom_window_lines = @screen_height - @bottom_window_start
@@ -393,6 +403,57 @@ class ScreenClass
 		puts @window_content.to_s
 	end
 
+	def get_key_state
+	  STDIN.raw do |io|
+		begin
+		  input = io.read_nonblock(3)
+
+		  # Normalize Windows arrow keys
+		  if Gem.win_platform?
+			case input
+			when "\xE0H" then return :up
+			when "\xE0P" then return :down
+			when "\xE0K" then return :left
+			when "\xE0M" then return :right
+			end
+		  else
+			# Normalize Linux/macOS escape sequences
+			case input
+			when "\e[A" then return :up
+			when "\e[B" then return :down
+			when "\e[C" then return :right
+			when "\e[D" then return :left
+			end
+		  end
+
+		  return input
+
+		rescue IO::WaitReadable, EOFError
+		  return nil
+		end
+	  end
+	end
+
+	def readInput(max_chars)
+		total = ""
+		loop do
+			key = get_key_state()
+			if key == 13.chr
+				return total
+			elsif key == 8.chr
+				if total.length > 0
+					total = total[0, total.length - 1] 
+					print key + " " + key
+				end
+			elsif total.length < max_chars
+#				print "(#{key.ord})"
+				total += key
+				print key
+			end
+			sleep 0.05
+		end
+	end
+
 end # ScreenClass
 
 class StreamsClass
@@ -438,9 +499,10 @@ class StreamsClass
 			end
 		end
 	end
-	def readInput
+	def readInput(maxchars)
 		if @inputStreams[0]['active']
-			command = STDIN.gets.chomp
+#			command = STDIN.gets.chomp
+			command = $screen.readInput(maxchars)
 		else
 			if @commands.empty?
 				activateInput(0)
@@ -1568,7 +1630,7 @@ def insRead
 	$screen.bottom_clear_lines()
 #	input = STDIN.gets.chomp[0 .. maxchars - 1].downcase
 #	IO.console.goto($screen.screen_height - 2, 0)
-	input = $streams.readInput()[0 .. maxchars - 1].downcase
+	input = $streams.readInput(maxchars)[0 .. maxchars - 1].downcase
 	$streams.printASCIICommand(input, true)
 
 	### Write input into memory, and split it into words
