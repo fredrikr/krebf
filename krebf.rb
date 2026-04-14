@@ -81,6 +81,7 @@ class ScreenClass
 		@cursor = [
 			{ 'line' => @screen_height - 1, 'col' => 0 },
 			{ 'line' => 0, 'col' => 0 },
+			{ 'line' => 0, 'col' => 0 },
 		]
 		IO.console.goto(@cursor[0]['line'], @cursor[0]['col'])
 		unsplit()
@@ -114,7 +115,6 @@ class ScreenClass
 		top_lines = 0 if top_lines < 0
 		top_lines = @top_window_lines + @bottom_window_lines if 
 				top_lines > @top_window_lines + @bottom_window_lines
-#		puts "SPLIT#{@top_window_lines},#{top_lines}"
 		if top_lines != @top_window_lines
 			if @top_window_lines > 0
 				# Resize
@@ -129,10 +129,8 @@ class ScreenClass
 #				end
 			else
 				nil
-#				@window_content = []
 				top_lines.times do |i|
 					@window_content[@top_window_start + i] = ' ' * (@screen_width - 1)
-#					@window_content.push ' ' * (@screen_width - 1)
 				end
 			end
 
@@ -184,41 +182,41 @@ class ScreenClass
 	def screen_width
 		@screen_width
 	end
-	def showStatusline # Only used for v1-v3
+	def refreshStatusline
+		return if $zcode_version > 3
 		(line, col) = IO.console.cursor()
+		IO.console.goto(0, 0)
+		print "\033[7m " # Reverse text
+		print @window_content[0]
+		print "\033[0m" # Normal text (reverse off)
+		IO.console.goto(line, col)
+	end
+	def showStatusline # Only used for v1-v3
+		return if $zcode_version > 3
 		win = @window
 		@window = 2
-		IO.console.goto(0, 0)
-		@cursor[0]['col'] = 0
-
-		print "\033[7m " # Reverse text
+		@cursor[2]['line'] = 0
+		@cursor[2]['col'] = 0
 
 		printObjectName(readGlobal(16))
-		(s_line, s_col) = IO.console.cursor()
-		print ' ' * (@screen_width - s_col) if @screen_width - s_col > 0
+		printPartialLine ' ' * @screen_width # if @screen_width - s_col > 0
 
 		if $zcode_version == 3 and readByte(1) & 2 != 0
-			IO.console.goto(0, @screen_width - 18)
-			@cursor[0]['col'] = @screen_width - 18
+			@cursor[2]['col'] = @screen_width - 18
 			hbase = readGlobal(17)
 			h = hbase > 12 ? hbase - 12 : (hbase == 0 ? 12 : hbase)
 			m = readGlobal(18).to_s.rjust(2,'0')
 			ampm = hbase < 12 ? 'AM' : 'PM'
 			printBuffered " Time: #{h}:#{m} #{ampm}   "
 		else
-			IO.console.goto(0, @screen_width - 25)
-			@cursor[0]['col'] = @screen_width - 25
+			@cursor[2]['col'] = @screen_width - 25
 			printBuffered " Score: #{readGlobal(17)}   "
-			IO.console.goto(0, @screen_width - 13)
-			@cursor[0]['col'] = @screen_width - 13
+			@cursor[2]['col'] = @screen_width - 13
 			printBuffered " Moves: #{readGlobal(18)}   "
 		end
 		
-		print "\033[0m" # Normal text (reverse off)
-		
 		@window = win
-		IO.console.goto(line, col)
-		@cursor[0]['col'] = col
+		refreshStatusline()
 	end
 	def more
 		if @bottom_window_lines > 1
@@ -259,9 +257,6 @@ class ScreenClass
 			exit 1
 		end
 		refreshBottomWindow()
-#		(@bottom_window_lines - 1).times do |i|
-#			@window_content[
-#		end
 	end
 	def newline
 		if @window == 0
@@ -293,7 +288,6 @@ class ScreenClass
 		return if str.length == 0 or @window == 2 && line > 0
 		maxlength = @screen_width - 1 - @cursor[@window]['col']
 		str = str[0, maxlength] if str.length > maxlength
-#		print "(#{line}/#{@screen_height},#{@window},#{@window_content.length})"
 		if @window_content[line] == nil
 			puts @window_content.length
 			fatalErr "NO LINE!"
@@ -371,7 +365,6 @@ class ScreenClass
 					if newlinePos
 						if newlinePos > 0
 							printPartialLine str[0, newlinePos]
-#							printBuffered(str[0, newlinePos])
 						else
 							newline()
 						end
@@ -379,21 +372,12 @@ class ScreenClass
 					end
 				end
 				# There are no newlines in str from this point
-				if !str.empty? #and @cursor[1]['col'] < @screen_width - 2
-					printPartialLine str
-#					toprint = str[0 .. @screen_width - @cursor[1]['col'] - 2]
-#					line = @cursor[1]['line'] - @top_window_start
-#					split(line + 1) if line > @top_window_lines - 1
-#					@window_content[line][@cursor[1]['col'], toprint.length] = toprint
-#					@cursor[1]['col'] += toprint.length
-				end
+				printPartialLine str
 			else
 				# Statusline (2)
-				if @cursor[0]['col'] < @screen_width - 2
-					toprint = str[0 .. @screen_width - @cursor[0]['col'] - 2]
-					print toprint
-					@cursor[0]['col'] += toprint.length
-				end
+				newlinePos = str.index(/\n/)
+				str = str[0, newlinePos] if newlinePos
+				printPartialLine str
 			end
 		end
 		flushBuffer() if flush
