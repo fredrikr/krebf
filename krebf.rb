@@ -118,18 +118,21 @@ class ScreenClass
 		if top_lines != @top_window_lines
 			if @top_window_lines > 0
 				# Resize
-				if top_lines < @top_window_lines
-					@window_content = @window_content.take(top_lines)
-					clearLines(@top_window_start + top_lines, @top_window_lines - top_lines)
-				else
-					(top_lines - @top_window_lines).times do
-						@window_content.push ' ' * (@screen_width - 1)
-					end
-				end
+				nil
+#				if top_lines < @top_window_lines
+#					@window_content = @window_content.take(top_lines)
+#					clearLines(@top_window_start + top_lines, @top_window_lines - top_lines)
+#				else
+#					(top_lines - @top_window_lines).times do
+#						@window_content.push ' ' * (@screen_width - 1)
+#					end
+#				end
 			else
-				@window_content = []
-				top_lines.times do
-					@window_content.push ' ' * (@screen_width - 1)
+				nil
+#				@window_content = []
+				top_lines.times do |i|
+					@window_content[@top_window_start + i] = ' ' * (@screen_width - 1)
+#					@window_content.push ' ' * (@screen_width - 1)
 				end
 			end
 
@@ -147,13 +150,20 @@ class ScreenClass
 		return if @top_window_lines == 0
 		(line, col) = IO.console.cursor()
 		IO.console.goto(@top_window_start, 0)
-		@window_content.each do |str|
-			puts str
+		@top_window_lines.times do |i|
+			puts @window_content[@top_window_start + i]
 		end
 		IO.console.goto(line, col)
 	end
 	def selectWindow(window)
-		@window = window if window == 0 or window == 1 && $zcode_version > 2
+		if window < 0 or window == 1 && $zcode_version < 3 or
+				window == 2 && $zcode_version > 3
+			fatalErr "PC=$#{$pc.to_s(16)}: screen.selectWindow: " + 
+					"Tried to select impossible window: " + 
+					(window != nil ? window.to_s : 'nil') +
+					" when window was " + @window.to_s
+		end
+		@window = window 
 		if window == 0
 			IO.console.goto(@cursor[0]['line'], @cursor[0]['col'])
 		elsif window == 1
@@ -262,21 +272,35 @@ class ScreenClass
 			end	
 			@cursor[0]['col'] = 0
 		else
-			if @cursor[1]['line'] < @bottom_window_start + @bottom_window_lines - 1
-				@cursor[1]['line'] += 1
-			end	
-			@cursor[0]['col'] = 0
+			if @cursor[@window]['line'] < @bottom_window_start + @bottom_window_lines - 1
+				@cursor[@window]['line'] += 1
+			end
+			@cursor[@window]['col'] = 0
 		end
 	end
-	def bottomPrintPartialLine(str)
-		line = @cursor[0]['line']
+	def printPartialLine(str)
+		line = @cursor[@window]['line']
+		if line < 0 or line > @screen_height - 1 or 
+					@window == 0 && line < @bottom_window_start or
+					@window == 1 && line < @top_window_start
+			fatalErr "PC=$#{$pc.to_s(16)}: screen.printPartialLine: " + 
+					"Tried to print to impossible line: " + 
+					(line != nil ? line.to_s : 'nil') +
+					" in window " + @window.to_s +
+					", screen_height is " + @screen_height.to_s +
+					", bottom_window_start is " + @bottom_window_start.to_s
+		end
+		return if str.length == 0 or @window == 2 && line > 0
+		maxlength = @screen_width - 1 - @cursor[@window]['col']
+		str = str[0, maxlength] if str.length > maxlength
 #		print "(#{line}/#{@screen_height},#{@window},#{@window_content.length})"
 		if @window_content[line] == nil
 			puts @window_content.length
-			exit 1
+			fatalErr "NO LINE!"
 		end
-		@window_content[line][@cursor[0]['col'], str.length] = str
-		@cursor[0]['col'] += str.length
+		split(line + 1 - @top_window_start) if @window == 1 and line >= @bottom_window_start
+		@window_content[line][@cursor[@window]['col'], str.length] = str
+		@cursor[@window]['col'] += str.length
 	end
 	def printBuffered(str, flush = false)
 		if str && str.length > 0
@@ -292,7 +316,6 @@ class ScreenClass
 						else
 							flushBuffer()
 							newline()
-							@cursor[0]['col'] = 0
 							bottom_add_line()
 						end
 						str = str[newlinePos + 1 ..]
@@ -303,18 +326,13 @@ class ScreenClass
 				if @buffer.length > @screen_width - 1
 					breakPos = @buffer.rindex(/ /, @screen_width - 1)
 					if breakPos
-
-#						puts @buffer[0 .. breakPos - 1]
-						bottomPrintPartialLine @buffer[0 .. breakPos - 1]
+						printPartialLine @buffer[0 .. breakPos - 1]
 						newline()
-						
 						bottom_add_line()
 						@buffer = @buffer [breakPos + 1 ..]
 					else
-#						puts @buffer[0 .. @screen_width - 2]
-						bottomPrintPartialLine @buffer[0 .. @screen_width - 2]
+						printPartialLine @buffer[0 .. @screen_width - 2]
 						newline()
-
 						bottom_add_line()
 						@buffer = @buffer[@screen_width - 1 ..]
 					end
@@ -326,11 +344,9 @@ class ScreenClass
 					newlinePos = str.index(/\n/)
 					if newlinePos
 						if newlinePos > 0
-#							printBuffered(str.first(newlinePos))
 							printBuffered(str[0, newlinePos])
 						else
 							newline()
-							@cursor[0]['col'] = 0
 							bottom_add_line()
 						end
 						str = str[newlinePos + 1 ..]
@@ -339,12 +355,10 @@ class ScreenClass
 				# There are no newlines in str from this point
 				while str and !str.empty? do
 					if @cursor[0]['col'] + str.length < @screen_width - 2
-						bottomPrintPartialLine str
+						printPartialLine str
 					else
-#						print str[0 .. @screen_width - col - 1]
-						bottomPrintPartialLine str[0 .. @screen_width - col - 1]
+						printPartialLine str[0 .. @screen_width - col - 1]
 						newline()
-#						@cursor[0]['col'] = 0
 						bottom_add_line()
 						str = str[@screen_width - col ..]
 					end
@@ -356,23 +370,22 @@ class ScreenClass
 					newlinePos = str.index(/\n/)
 					if newlinePos
 						if newlinePos > 0
-#							printBuffered(str.first(newlinePos))
-							printBuffered(str[0, newlinePos])
+							printPartialLine str[0, newlinePos]
+#							printBuffered(str[0, newlinePos])
 						else
 							newline()
-#							@cursor[1]['line'] += 1 if @cursor[1]['line'] < @screen_height - 1 
-#							@cursor[1]['col'] = 0
 						end
 						str = str[newlinePos + 1 ..]
 					end
 				end
 				# There are no newlines in str from this point
-				if !str.empty? and @cursor[1]['col'] < @screen_width - 2
-					toprint = str[0 .. @screen_width - @cursor[1]['col'] - 2]
-					line = @cursor[1]['line'] - @top_window_start
-					split(line + 1) if line > @top_window_lines - 1
-					@window_content[line][@cursor[1]['col'], toprint.length] = toprint
-					@cursor[1]['col'] += toprint.length
+				if !str.empty? #and @cursor[1]['col'] < @screen_width - 2
+					printPartialLine str
+#					toprint = str[0 .. @screen_width - @cursor[1]['col'] - 2]
+#					line = @cursor[1]['line'] - @top_window_start
+#					split(line + 1) if line > @top_window_lines - 1
+#					@window_content[line][@cursor[1]['col'], toprint.length] = toprint
+#					@cursor[1]['col'] += toprint.length
 				end
 			else
 				# Statusline (2)
@@ -387,7 +400,7 @@ class ScreenClass
 	end
 	def flushBuffer
 		if @buffer.length > 0
-			bottomPrintPartialLine @buffer
+			printPartialLine @buffer
 			refreshBottomWindow()
 			@buffer = ""
 		end
