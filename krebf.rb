@@ -86,23 +86,75 @@ class ScreenClass
 		IO.console.goto(@cursor[0]['line'], @cursor[0]['col'])
 		unsplit()
 	end
+	def buffered
+		@buffered
+	end
+	def buffered=(value)
+		@buffered = value
+	end
+	def impossibleWindow(window)
+		window == nil or window < 0 or window > 2 or 
+				window == 1 && $zcode_version < 3 or
+				window == 2 && $zcode_version > 3
+	end
 	def clear
 		IO.console.clear_screen
 		IO.console.goto(@screen_height - 1, 0)
 		@cursor[0]['col'] = 0
 	end
-	def clearLines(start, count)
-		(line, col) = IO.console.cursor()
-		str = ' ' * (@screen_width - 1)
-		IO.console.goto(start, 0)
-		count.times do
-			puts str
+#	def clearLines(start, count)
+#		(line, col) = IO.console.cursor()
+#		str = ' ' * (@screen_width - 1)
+#		IO.console.goto(start, 0)
+#		count.times do
+#			puts str
+#		end
+#		IO.console.goto(line, col)
+#	end
+	def setCursor(line, col)
+		@cursor[@window] = { 'line' => line, 'col' => col }
+	end
+	def setCursorTopLeft(window)
+		if impossibleWindow(window)
+			fatalErr "PC=$#{$pc.to_s(16)}: screen.setCursorTopLeft: " + 
+					"Tried to set cursor position in impossible window: " + 
+					(window != nil ? window.to_s : 'nil')
 		end
-		IO.console.goto(line, col)
+		@cursor[window] = 
+			case
+				when window == 0 then
+					{ 'line' => @bottom_window_start, 'col' => 0 }
+				when window == 1 then
+					{ 'line' => @top_window_start, 'col' => 0 }
+				when window == 2 then
+					{ 'line' => 0, 'col' => 0 }
+			end
+	end
+	def setCursorBottomLeft(window)
+		if impossibleWindow(window)
+			fatalErr "PC=$#{$pc.to_s(16)}: screen.setCursorBottomLeft: " + 
+					"Tried to set cursor position in impossible window: " + 
+					(window != nil ? window.to_s : 'nil')
+		end
+		@cursor[window] = 
+			case
+				when window == 0 then
+					{ 
+						'line' => @bottom_window_start + @bottom_window_lines - 1,
+						'col' => 0 
+					}
+				when window == 1 then
+					{ 'line' => @bottom_window_start - 1, 'col' => 0 }
+				when window == 2 then
+					{ 'line' => 0, 'col' => 0 }
+			end
 	end
 	def unsplit
 		if @top_window_lines > 0
-			clearLines(@top_window_start, @top_window_lines)
+#			clearLines(@top_window_start, @top_window_lines)
+			@top_window_start.upto(@top_window_lines - 1) do |i|
+				@window_content[i] = ' ' * (@screen_width - 1)
+			end
 		end
 		@top_window_lines = 0
 		@bottom_window_start = @top_window_start + @top_window_lines
@@ -164,21 +216,20 @@ class ScreenClass
 		IO.console.goto(line, col)
 	end
 	def selectWindow(window)
-		if window < 0 or window == 1 && $zcode_version < 3 or
-				window == 2 && $zcode_version > 3
+		if impossibleWindow(window)
 			fatalErr "PC=$#{$pc.to_s(16)}: screen.selectWindow: " + 
 					"Tried to select impossible window: " + 
 					(window != nil ? window.to_s : 'nil') +
 					" when window was " + @window.to_s
 		end
 		@window = window 
-		if window == 0
-			IO.console.goto(@cursor[0]['line'], @cursor[0]['col'])
-		elsif window == 1
-			@cursor[1]['line'] = @top_window_start
-			@cursor[1]['col'] = 0
-			IO.console.goto(@cursor[1]['line'], @cursor[1]['col'])
-		end
+#		if window == 0
+#			IO.console.goto(@cursor[0]['line'], @cursor[0]['col'])
+#		elsif window == 1
+#			@cursor[1]['line'] = @top_window_start
+#			@cursor[1]['col'] = 0
+#			IO.console.goto(@cursor[1]['line'], @cursor[1]['col'])
+#		end
 	end
 	def window
 		@window
@@ -191,6 +242,38 @@ class ScreenClass
 	end
 	def screen_width
 		@screen_width
+	end
+	def clearWindow(window)
+		if impossibleWindow(window)
+			fatalErr "PC=$#{$pc.to_s(16)}: screen.clearWindow: " + 
+					"Tried to clear impossible window: " + 
+					(window != nil ? window.to_s : 'nil')
+		end
+		clear_from = -1
+		clear_to = -1
+		if window == 0
+			clear_from = @bottom_window_start
+			clear_to = @bottom_window_start + @bottom_window_lines - 1
+		elsif window == 1
+			clear_from = @top_window_start
+			clear_to = @bottom_window_start - 1
+		elsif window == 2
+			clear_from = 0
+			clear_to = 0
+		end
+		if clear_from >= 0
+			clear_from.upto(clear_to) do |i|
+				@window_content[i] = ' ' * (@screen_width - 1)
+			end
+		end
+		case
+			when window == 0
+				refreshBottomWindow()
+			when window == 1
+				refreshTopWindow()
+			when window == 2
+				refreshStatusline()
+		end
 	end
 	def refreshStatusline
 		return if $zcode_version > 3
@@ -205,8 +288,7 @@ class ScreenClass
 		return if $zcode_version > 3
 		win = @window
 		@window = 2
-		@cursor[2]['line'] = 0
-		@cursor[2]['col'] = 0
+		setCursorTopLeft(2)
 
 		printObjectName(readGlobal(16))
 		printPartialLine ' ' * @screen_width # if @screen_width - s_col > 0
@@ -433,7 +515,13 @@ class ScreenClass
 		end
 	  end
 	end
-
+	def readChar
+		loop do
+			key = get_key_state()
+			return key if key
+			sleep 0.05
+		end
+	end
 	def readInput(max_chars)
 		total = ""
 		loop do
@@ -1794,13 +1882,55 @@ def insSetWindow
 end
 
 def insEraseWindow
-	puts "Erase Window"
-	exit 1
+	window = toSigned($args[0])
+	if window == 0 or window == 1
+		$screen.clearWindow(window)
+		if window == 1
+			$screen.setCursorTopLeft(1)
+		elsif $zcode_version > 4
+			$screen.setCursorTopLeft(0)
+		else
+			$screen.setCursorBottomLeft(0)
+		end
+	elsif window == -1
+		$screen.unsplit()
+		$screen.clearWindow(0)
+		if $zcode_version > 4
+			$screen.setCursorTopLeft(0)
+		else
+			$screen.setCursorBottomLeft(0)
+		end
+		$screen.selectWindow(0)
+	elsif window == -2
+		$screen.clearWindow(0)
+		if $zcode_version > 4
+			$screen.setCursorTopLeft(0)
+		else
+			$screen.setCursorBottomLeft(0)
+		end
+		$screen.clearWindow(1)
+		$screen.setCursorTopLeft(1)
+	end
 end
 
 def insEraseLine
 	puts "Erase Line"
 	exit 1	
+end
+
+def insSetCursor
+	$screen.setCursor(toSigned($args[0]) - 1, toSigned($args[1]) - 1)
+end
+
+def insSetTextStyle
+	# Ignore, for now
+end
+
+def insBufferMode
+	flag = $args[0]
+	if flag == 0 or flag == 1
+		$screen.buffered = flag == 1 ? true : false
+	end
 end
 
 def insOutputStream
@@ -1822,6 +1952,11 @@ end
 
 def insSoundEffect
 	print "\007" if $args.empty? or [1,2].include? $args[0]
+end
+
+def insReadChar
+	key = $screen.readChar()
+	setVar(readByteAtPC(), key.ord)
 end
 
 $opcode_routines = {
@@ -1905,16 +2040,16 @@ $opcode_routines = {
 		method(:insSplitWindow),
 		method(:insSetWindow),
 		method(:insCallS), #call_vs2 v4+
-		method(:insEraseWindow), #erase_window v4+
+		method(:insEraseWindow),
 		method(:insEraseLine), #erase_line v4+
-		nil, #set_cursor v4+
+		method(:insSetCursor),
 		nil, #get_cursor v4+
-		nil, #set_text_style v4+
-		nil, #buffer_mode v4+
+		method(:insSetTextStyle),
+		method(:insBufferMode),
 		method(:insOutputStream),
 		method(:insInputStream),
 		method(:insSoundEffect),
-		nil, #read_char v4+
+		method(:insReadChar),
 		nil, #scan_table v4+
 		nil, #not v5+
 		method(:insCallN), #call_vn v5+
@@ -2140,6 +2275,8 @@ def initializeGame
 	updateHeader()
 	
 	$screen.clear()
+	$args = [ 0xffff ]
+	insEraseWindow()
 end
 
 ####################################
