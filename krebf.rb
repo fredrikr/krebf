@@ -19,6 +19,7 @@ $debug = []
 FORM_VAR = 1
 FORM_SHORT = 2
 FORM_LONG = 3
+FORM_EXT = 4
 
 OPCODE_TYPE_0OP = 1
 OPCODE_TYPE_1OP = 2
@@ -35,6 +36,7 @@ OPERAND_TYPE_OMITTED    = 3
 def fatalErr(message)
 	puts message
 	puts caller(0)
+	puts $addresses.map{|x| x.to_s(16)}.to_s # DEBUG ONLY
 	exit 1
 end
 
@@ -111,6 +113,9 @@ class ScreenClass
 #		end
 #		IO.console.goto(line, col)
 #	end
+	def getCursor
+		return @cursor[@window]['line'], @cursor[@window]['col']
+	end
 	def setCursor(line, col)
 		@cursor[@window] = { 'line' => line, 'col' => col }
 	end
@@ -431,10 +436,11 @@ class ScreenClass
 					if newlinePos
 						if newlinePos > 0
 							printBuffered(str[0, newlinePos])
-						else
+						end
+#						else
 							newline()
 							bottom_add_line()
-						end
+#						end
 						str = str[newlinePos + 1 ..]
 					end
 				end
@@ -442,11 +448,12 @@ class ScreenClass
 				while str and !str.empty? do
 					if @cursor[0]['col'] + str.length < @screen_width - 2
 						printPartialLine str
+						str = ""
 					else
-						printPartialLine str[0 .. @screen_width - col - 1]
+						printPartialLine str[0 .. @screen_width - @cursor[0]['col'] - 1]
 						newline()
 						bottom_add_line()
-						str = str[@screen_width - col ..]
+						str = str[@screen_width - @cursor[0]['col'] ..]
 					end
 				end
 			elsif @window == 1
@@ -718,6 +725,7 @@ class StreamsClass
 		if @outputStreams[1]['active'] and echoToScreen
 #			strASCII.each_char { |x| print"#{x.ord}," }
 			$screen.printBuffered(strASCII + "\n", true)
+			$screen.refreshBottomWindow()
 		end
 		if @outputStreams[2]['active']
 			File.open(@outputStreams[2]['filename'], 'a') do |file|
@@ -754,7 +762,7 @@ class StackClass
 	end
 	def stackForSave
 		packCurrentFrame()
-		@stack
+		@stack.dup
 	end
 	def stackForSave=(stack)
 		@stack = stack
@@ -784,6 +792,7 @@ class StackClass
 		new_frame = {
 			'ret' => $pc,
 			'sto' => store,
+			'arg' => args
 		}
 		$pc = unpackRoutinePaddress(paddress)
 		varCount = readByteAtPC()
@@ -802,7 +811,7 @@ class StackClass
 			end
 		else
 			args.length.times do |i|
-				@locals[i] = args[i] if i < varCount - 1
+				@locals[i] = args[i] # if i < varCount - 1
 			end
 		end
 		@stack.push new_frame
@@ -948,6 +957,7 @@ def setChild(objaddress, child)
 end
 
 def printAtAddress(address, return_string = false)
+#		$streams.printZSCIIString("X") unless return_string
 	word = 0
 	alphabet_offset_lock = 0
 	alphabet_offset = 0
@@ -1036,6 +1046,7 @@ def printAtAddress(address, return_string = false)
 	return str if return_string
 	
 	$streams.printZSCIIString str unless str.empty?
+#		$streams.printZSCIIString("Y")
 
 	address
 end
@@ -1078,7 +1089,7 @@ def insNop
 	nil
 end
 
-def insSave
+def saveGame
 	success = false
 	$streams.printZSCIIString("Please enter a filename: ", true)
 	filename = STDIN.gets.chomp
@@ -1098,6 +1109,11 @@ def insSave
 		IO.binwrite(filename, json)
 		success = true
 	end
+	success
+end
+
+def insSavePreZ5
+	success = saveGame()
 	if $zcode_version < 4
 		condBranch(success)
 	else ## if $zcode_version == 4
@@ -1107,13 +1123,13 @@ end
 
 def forkInsSaveOrIllegal
 	if $zcode_version < 5
-		insSave()
+		insSavePreZ5()
 	else
 		illegalInstruction();
 	end
 end
 
-def insRestore
+def restoreGame
 	success = false
 	$streams.printZSCIIString("Please enter a filename: ", true)
 	filename = STDIN.gets.chomp
@@ -1140,7 +1156,11 @@ def insRestore
 			writeWord(0x10, readWord(0x10) & 0xfffe | $transcriptBit)
 		end
 	end
+	success
+end
 
+def insRestorePreZ5
+	success = restoreGame()
 	if $zcode_version < 4
 		condBranch(success)
 	else ## if $zcode_version == 4
@@ -1300,7 +1320,7 @@ def insGetPropLen
 			value = (value >> 5) + 1
 		else
 			if value & 0x80 != 0
-				value &= 0x0b00111111
+				value &= 0b00111111
 				value = 64 if value == 0
 			else
 				value = 1 + (value >> 6)
@@ -1713,8 +1733,9 @@ def insRead
 	### Perform input from keyboard
 	
 	$screen.flushBuffer()
-	$screen.showStatusline()
+	$screen.showStatusline() if $zcode_version < 4
 	$screen.refreshTopWindow()
+	$screen.refreshBottomWindow()
 	$screen.bottom_clear_lines()
 #	input = STDIN.gets.chomp[0 .. maxchars - 1].downcase
 #	IO.console.goto($screen.screen_height - 2, 0)
@@ -1779,6 +1800,8 @@ def insRead
 
 	writeByte(parse + 1, parsed)
 
+	setVar(readByteAtPC(), 13) if $zcode_version > 4
+	
 end
 
 def insPrintChar
@@ -1959,6 +1982,131 @@ def insReadChar
 	setVar(readByteAtPC(), key.ord)
 end
 
+def insScanTable
+	(x, table, len, form) = $args[0 .. 3]
+	address = 0
+	form = 0x82 unless form
+	wordmode = form & 0x80 > 0 ? true : false
+	entry_len = form & 0x7f
+	found = false
+	if len > 0 and entry_len > 0
+		address = table
+		loop do
+			val = wordmode ? readWord(address) : readByte(address)
+			if val == x
+				found = true
+				break
+			end
+			address += entry_len
+			len -= 1
+			break if len < 1
+		end
+		address = 0 unless found
+	end
+	
+	setVar(readByteAtPC(), address)
+	condBranch(found)
+end
+
+def insCopyTable
+	(first, second, size_value) = $args[0 .. 2]
+	size_value = toSigned(size_value)
+	size = size_value < 0 ? (-size_value) : size_value
+	forward = true
+	forward = false if size_value >= 0 and first < second
+
+	if forward
+		size.times do |i|
+			writeByte(second + i, readByte(first + i))
+		end
+	else
+		(size - 1).downto(0) do |i|
+			writeByte(second + i, readByte(first + i))
+		end
+	end
+end
+
+def insPrintTable
+	address = $args[0]
+	width = $args[1]
+	height = $args.length > 2 ? $args[2] : 1
+	skip = $args.length > 3 ? $args[3] : 0
+	line, col = $screen.getCursor()
+	height.times do
+		$screen.setCursor(line, col)
+		$streams.printZSCIIString($z[address, width])
+		address += height + skip
+		line += 1
+	end
+end
+
+def insCheckArgCount
+	arg = $stack.stackForSave().last['arg']
+	condBranch((arg != nil and arg.length >= $args[0]))
+end
+
+def insSaveZ5
+	success = saveGame()
+	setVar(readByteAtPC(), success ? 1 : 0)
+end
+
+def insRestoreZ5
+	success = restoreGame()
+	setVar(readByteAtPC(), success ? 2 : 0)
+end
+
+
+def insLogShift
+	value = $args[0]
+	places = toSigned($args[1])
+	places = 0 if places < -15 or places > 15
+	if places > 0
+		value = (value << places) & 0xffff
+	else
+		value = value >> (-places)
+	end
+	setVar(readByteAtPC(), value)
+end
+
+def insArtShift
+	value = $args[0]
+	places = toSigned($args[1])
+	places = 0 if places < -15 or places > 15
+	if places > 0
+		value = (value << places) & 0xffff
+	else
+		(-places).times do
+			value >>= 1
+			value = value | 0x8000 if value & 0x4000 != 0
+		end
+	end
+	setVar(readByteAtPC(), value)
+end
+
+def insSaveUndo
+	$undo_data = {
+		'pc' => $pc,
+		'stack' => $stack.stackForSave,
+		'dynmem' => $z[0 .. readWord(0xe) - 1]
+	}
+	setVar(readByteAtPC(), 1)
+end
+
+def insRestoreUndo
+	result = 0
+	if $undo_data
+		$pc = $undo_data['pc']
+		$stack.stackForSave = $undo_data['stack']
+		$z[0 .. readWord(0xe) - 1] = $undo_data['dynmem']
+		$undo_data = nil
+		updateHeader()
+		writeWord(0x10, readWord(0x10) & 0xfffe | $transcriptBit)
+		result = 2
+	end
+	setVar(readByteAtPC(), result)
+end
+
+
 $opcode_routines = {
 	OPCODE_TYPE_0OP => [
 		method(:insRtrue),
@@ -2050,28 +2198,28 @@ $opcode_routines = {
 		method(:insInputStream),
 		method(:insSoundEffect),
 		method(:insReadChar),
-		nil, #scan_table v4+
-		nil, #not v5+
+		method(:insScanTable),
+		method(:insNot), #not v5+
 		method(:insCallN), #call_vn v5+
 		method(:insCallN), #call_vn2 v5+
 		nil, #tokenise v5+
 		nil, #encode v5+
-		nil, #copy_table v5+
-		nil, #print_table v5+
-		nil, #check_arg_count v5+
+		method(:insCopyTable),
+		method(:insPrintTable),
+		method(:insCheckArgCount),
 	],
 	OPCODE_TYPE_EXT => [
-		nil, #save v5+
-		nil, #restore v5+
-		nil, #log_shift v5+
-		nil, #art_shift v5+
+		method(:insSaveZ5),
+		method(:insRestoreZ5),
+		method(:insLogShift),
+		method(:insArtShift),
 		nil, #set_font v5+
 		nil,
 		nil,
 		nil,
 		nil,
-		nil, #save_undo v5+
-		nil, #restore_undo v5+
+		method(:insSaveUndo),
+		method(:insRestoreUndo),
 		nil, #print_unicode v5+
 		nil, #check_unicode v5+
 		nil, #set_true_colour v5+
@@ -2112,13 +2260,16 @@ def readInstruction
 
 	# Step 1: Read opcode, decide form, opcode type, opcode# and operand type(s).
 	opcode = readByteAtPC()
-	topbits = (opcode & 0b11000000) >> 6
-	form =
-		case
-			when topbits == 0b11 then FORM_VAR
-			when topbits == 0b10 then FORM_SHORT
-			else FORM_LONG
-		end	
+	form = FORM_EXT
+	if $zcode_version < 5 or opcode != 0xbe
+		topbits = (opcode & 0b11000000) >> 6
+		form =
+			case
+				when topbits == 0b11 then FORM_VAR
+				when topbits == 0b10 then FORM_SHORT
+				else FORM_LONG
+			end
+	end
 	case
 		when form == FORM_SHORT then
 			vartype = (opcode & 0b110000) >> 4
@@ -2170,6 +2321,15 @@ def readInstruction
 						(operand_type_byte_2 & 0b00001100) >> 2,
 						(operand_type_byte_2 & 0b00000011) ]
 			end
+		when form == FORM_EXT then
+			opcode_type = OPCODE_TYPE_EXT
+			opcode_number = readByteAtPC()
+			operand_type_byte = readByteAtPC()
+			operand_types = [
+					(operand_type_byte & 0b11000000) >> 6,
+					(operand_type_byte & 0b00110000) >> 4,
+					(operand_type_byte & 0b00001100) >> 2,
+					(operand_type_byte & 0b00000011) ]
 		else
 			fatalErr "ERROR: Incorrect form!"
 	end
@@ -2236,6 +2396,8 @@ def initializeGame
 	$streams.activateOutput(1)
 	$streams.inactivateOutput(3, true)
 
+	$undo_data = nil
+	
 	rndSeedRandom()
 #	rndSeed(0xff, 0x80, 0x01) # For benchmark mode
 
@@ -2283,13 +2445,27 @@ end
 #           MAIN PROGRAM           #
 ####################################
 
-if ARGV.length < 1
-	puts "Usage: ruby krebf.rb <zcode-file>"
+def printUsageAndExit
+	puts "Usage: ruby krebf.rb [-d disassembly file] <zcode-file>"
 	exit 1
 end
 
+printUsageAndExit() if ARGV.length < 1
 
-$storyfile_name = ARGV[0]
+$storyfile_name = nil
+$disassembly_filename = nil
+args = ARGV.dup
+while args.length > 0 do
+	if args[0] == '-d'
+		printUsageAndExit() if args.length < 2
+		$disassembly_filename = args[1]
+		args = args.drop(2)
+	else
+		printUsageAndExit() if $storyfile_name
+		$storyfile_name = args[0]
+		args = args.drop(1)
+	end
+end
 
 $z = IO.binread($storyfile_name)
 
@@ -2299,11 +2475,36 @@ len = $z.length
 $zcode_version = -1
 $zcode_version = $z[0].ord if len > 0
 
-if len < 64 or len > 512 * 1024 or $zcode_version.to_s !~ /^[1234]$/
+if len < 64 or len > 512 * 1024 or $zcode_version.to_s !~ /^[12345]$/
 	puts "The file #{$storyfile_name} doesn't seem to be a valid Z-code file, " +
 			"using Z-code version 1, 2, 3 or 4."
 	exit 1
 end
+
+$instructions = nil
+if $disassembly_filename
+	$instructions = {}
+	code = false
+	File.foreach($disassembly_filename) do |line|
+		if line =~ /^(Main )?[Rr]outine/
+			code = true
+		elsif line =~ /^(Padding|\*\*\*\*|\[End)/
+			code = false
+		elsif code
+			if line =~ /locals?$/ or line =~ /L0[0-9A-F]=0x[0-9A-F]{4} *$/
+				nil
+			elsif line =~ /^([0-9a-f]{5}| [0-9a-f]{4}|  [0-9a-f]{3}):/
+				$instructions[$1.strip] = 1
+			elsif line =~ /^([0-9A-F]{5}) /
+				$instructions[$1.strip.lstrip('0').downcase] = 1
+			end
+		end	
+	end
+#	puts $instructions.keys.sort.first(20)
+#	puts $instructions.keys.sort.last(20)
+#	exit 1
+end
+
 
 #$tty_reader = TTY::Reader.new
 
@@ -2320,8 +2521,20 @@ $trace = false
 #        Main game loop            #
 ####################################
 
+$addresses = []
+
 while $quit == false do
 	address = $pc
+	if $instructions
+		unless $instructions.has_key? $pc.to_s(16)
+			fatalErr "PC=$#{address.to_s(16)}: No instruction at this address!"
+		end
+	end
+	
+	# DEBUG ONLY
+	$addresses += [address]
+	$addresses = $addresses[1,100] if $addresses.length > 100
+	
 	$instruction = readInstruction()
 	$args = $instruction['operand_values']
 	funcs = $opcode_routines[$instruction['opcode_type']]
@@ -2333,7 +2546,11 @@ while $quit == false do
 	end
 	func = funcs[$instruction['opcode_number']]
 
-	puts "PC=$#{address.to_s(16)}, Ins = #{$instruction}" if $trace
+	if address == 0x2e8d000
+		puts $stack.stackForSave.to_s
+		puts "PC=$#{address.to_s(16)}, Ins = #{$instruction}" #if $trace
+		fatalErr "BREAK!"
+	end
 
 	func.call()
 	
