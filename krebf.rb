@@ -77,9 +77,7 @@ class ScreenClass
 		@top_window_start = $zcode_version < 4 ? 1 : 0
 		@top_window_lines = 0
 		@window_content = []
-		@screen_height.times do
-			@window_content.push ' ' * (@screen_width - 1)
-		end
+		clearLines(0, @screen_height - 1)
 		@cursor = [
 			{ 'line' => @screen_height - 1, 'col' => 0 },
 			{ 'line' => 0, 'col' => 0 },
@@ -104,15 +102,6 @@ class ScreenClass
 		IO.console.goto(@screen_height - 1, 0)
 		@cursor[0]['col'] = 0
 	end
-#	def clearLines(start, count)
-#		(line, col) = IO.console.cursor()
-#		str = ' ' * (@screen_width - 1)
-#		IO.console.goto(start, 0)
-#		count.times do
-#			puts str
-#		end
-#		IO.console.goto(line, col)
-#	end
 	def getCursor
 		return @cursor[@window]['line'], @cursor[@window]['col']
 	end
@@ -155,11 +144,8 @@ class ScreenClass
 			end
 	end
 	def unsplit
-		if @top_window_lines > 0
-#			clearLines(@top_window_start, @top_window_lines)
-			@top_window_start.upto(@top_window_lines - 1) do |i|
-				@window_content[i] = ' ' * (@screen_width - 1)
-			end
+		if $zcode_version < 4
+			clearLines(@top_window_start, @top_window_start + @top_window_lines - 1)
 		end
 		@top_window_lines = 0
 		@bottom_window_start = @top_window_start + @top_window_lines
@@ -181,29 +167,24 @@ class ScreenClass
 					# Top window gets smaller, clear part that is now returned to bottom window
 					clear_from = @top_window_start + top_lines
 					clear_to = @bottom_window_start - 1
-#					@window_content = @window_content.take(top_lines)
-#					clearLines(@top_window_start + top_lines, @top_window_lines - top_lines)
 				else
 					# Top window gets bigger, clear new part of top window
 					clear_from = @top_window_start + @top_window_lines
 					clear_to = @top_window_start + top_lines - 1
-#					(top_lines - @top_window_lines).times do
-#						@window_content.push ' ' * (@screen_width - 1)
-#					end
 				end
 			else
 				clear_from = @top_window_start
 				clear_to = @top_window_start + top_lines - 1				
 			end
-			
-			if clear_from >= 0
-				clear_from.upto(clear_to) do |i|
-					@window_content[i] = ' ' * (@screen_width - 1)
-				end
-			end
+						
+			clearLines(clear_from, clear_to) if $zcode_version < 4 and clear_from >= 0
+
 			@top_window_lines = top_lines
 			@bottom_window_start = @top_window_start + @top_window_lines
 			@bottom_window_lines = @screen_height - @bottom_window_start
+			if @cursor[0]['line'] < @bottom_window_start
+				@cursor[0] = { 'line' => @bottom_window_start, 'col' => 0 }
+			end
 			if old_lines == 0
 				@cursor[1]['line'] = @top_window_start
 				@cursor[1]['col'] = 0
@@ -248,6 +229,14 @@ class ScreenClass
 	def screen_width
 		@screen_width
 	end
+	def clearLines(from, to)
+		while @window_content.length < to + 1 do
+			@window_content += [nil]
+		end
+		from.upto(to) do |line|
+			@window_content[line] = ' ' * (@screen_width - 1)
+		end
+	end
 	def clearWindow(window)
 		if impossibleWindow(window)
 			fatalErr "PC=$#{$pc.to_s(16)}: screen.clearWindow: " + 
@@ -266,11 +255,7 @@ class ScreenClass
 			clear_from = 0
 			clear_to = 0
 		end
-		if clear_from >= 0
-			clear_from.upto(clear_to) do |i|
-				@window_content[i] = ' ' * (@screen_width - 1)
-			end
-		end
+		clearLines(clear_from, clear_to) if clear_from >= 0
 		case
 			when window == 0
 				refreshBottomWindow()
@@ -319,7 +304,7 @@ class ScreenClass
 		if @bottom_window_lines > 1
 			IO.console.goto(@screen_height - 1, 0)
 			print " -- MORE --"
-			a = STDIN.gets
+			$screen.readChar()
 			IO.console.goto(@screen_height - 2, 0)
 			print "                "
 			IO.console.goto(@screen_height - 2, 0)
@@ -344,15 +329,9 @@ class ScreenClass
 		end
 	end
 	def bottomScroll
-		a = @window_content.length
 		@window_content[@bottom_window_start, @bottom_window_lines] =
 			@window_content[@bottom_window_start + 1, @bottom_window_lines - 1] +
 				[' ' * (@screen_width - 1)]
-		b = @window_content.length
-		if a != b 
-			puts "ARRGH! #{a} #{b}"
-			exit 1
-		end
 		refreshBottomWindow()
 	end
 	def newline
@@ -363,11 +342,17 @@ class ScreenClass
 				@cursor[0]['line'] += 1
 			end	
 			@cursor[0]['col'] = 0
+			refreshBottomWindow()
 		else
 			if @cursor[@window]['line'] < @bottom_window_start + @bottom_window_lines - 1
 				@cursor[@window]['line'] += 1
 			end
 			@cursor[@window]['col'] = 0
+			if @window == 1
+				refreshTopWindow()
+			else
+				refreshStatusline()
+			end
 		end
 	end
 	def printPartialLine(str)
@@ -1154,6 +1139,7 @@ def restoreGame
 			$z[0 .. readWord(0xe) - 1] = Base64.decode64(savedata['dynmem'])
 			updateHeader()
 			writeWord(0x10, readWord(0x10) & 0xfffe | $transcriptBit)
+			$screen.unsplit() if $zcode_version == 3
 		end
 	end
 	success
@@ -1204,7 +1190,7 @@ def insQuit
 end
 
 def insNewLine
-	$streams.printZSCIIString "\n";
+	$streams.printZSCIIString 13.chr;
 end
 
 def insShowStatus
@@ -1942,7 +1928,15 @@ def insEraseLine
 end
 
 def insSetCursor
-	$screen.setCursor(toSigned($args[0]) - 1, toSigned($args[1]) - 1)
+	if $screen.window == 1
+		$screen.setCursor(toSigned($args[0]) - 1, toSigned($args[1]) - 1)
+	end
+end
+
+def insGetCursor
+	(line, col) = $screen.getCursor()
+	writeWord($args[0], line + 1)
+	writeWord($args[0] + 2, col + 1)
 end
 
 def insSetTextStyle
@@ -2083,6 +2077,21 @@ def insArtShift
 	setVar(readByteAtPC(), value)
 end
 
+def insSetFont
+	old_font = $font
+	new_font = $args[0]
+	if new_font == 0
+		# Don't change, just return old font
+		nil
+	elsif new_font == 1 or new_font == 4
+		$font = new_font
+	else
+		# Unavailable font
+		old_font = 0
+	end
+	setVar(readByteAtPC(), old_font)
+end
+
 def insSaveUndo
 	$undo_data = {
 		'pc' => $pc,
@@ -2191,7 +2200,7 @@ $opcode_routines = {
 		method(:insEraseWindow),
 		method(:insEraseLine), #erase_line v4+
 		method(:insSetCursor),
-		nil, #get_cursor v4+
+		method(:insGetCursor),
 		method(:insSetTextStyle),
 		method(:insBufferMode),
 		method(:insOutputStream),
@@ -2213,7 +2222,7 @@ $opcode_routines = {
 		method(:insRestoreZ5),
 		method(:insLogShift),
 		method(:insArtShift),
-		nil, #set_font v5+
+		method(:insSetFont), #set_font v5+
 		nil,
 		nil,
 		nil,
@@ -2397,6 +2406,8 @@ def initializeGame
 	$streams.inactivateOutput(3, true)
 
 	$undo_data = nil
+	
+	$font = 1
 	
 	rndSeedRandom()
 #	rndSeed(0xff, 0x80, 0x01) # For benchmark mode
