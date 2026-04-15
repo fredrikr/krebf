@@ -209,13 +209,6 @@ class ScreenClass
 					" when window was " + @window.to_s
 		end
 		@window = window 
-#		if window == 0
-#			IO.console.goto(@cursor[0]['line'], @cursor[0]['col'])
-#		elsif window == 1
-#			@cursor[1]['line'] = @top_window_start
-#			@cursor[1]['col'] = 0
-#			IO.console.goto(@cursor[1]['line'], @cursor[1]['col'])
-#		end
 	end
 	def window
 		@window
@@ -731,6 +724,17 @@ class StackClass
 		@locals = nil
 		@pushed = nil
 	end
+	def depth
+		@stack.length
+	end
+	def throw(value, target_depth)
+		if depth() < target_depth
+			fatalErr "PC=$#{$pc.to_s(16)}: stack.throw: No such frame (#{target_depth})!"
+		end
+		packCurrentFrame()
+		@stack = @stack.first(target_depth)
+		return(value)
+	end
 	def packCurrentFrame
 		frame = @stack.last
 		if @locals and !@locals.empty?
@@ -1175,11 +1179,15 @@ def insPop
 	$stack.pop()
 end
 
+def insCatch
+	setVar(readByteAtPC(), $stack.depth)
+end
+
 def forkInsPopOrCatch
 	if $zcode_version < 5
 		insPop()
 	else
-		fatalErr "PC=$#{$pc.to_s(16)}: forkInsPopOrCatch: Catch not implemented!"
+		insCatch()
 	end
 end
 
@@ -1598,6 +1606,15 @@ def insCallS
 	else
 		$stack.call($args[0], $args.drop(1), true)
 	end
+end
+
+def insSetColour
+	# If implemented, should print any text already in buffer in old colours
+	nil
+end
+
+def insThrow
+	$stack.throw($args[0], $args[1])
 end
 
 def insStorew
@@ -2115,6 +2132,13 @@ def insRestoreUndo
 	setVar(readByteAtPC(), result)
 end
 
+def insPrintUnicode
+	nil
+end
+
+def insCheckUnicode
+	setVar(readByteAtPC(), 0)
+end
 
 $opcode_routines = {
 	OPCODE_TYPE_0OP => [
@@ -2180,8 +2204,8 @@ $opcode_routines = {
 		method(:insMod),
 		method(:insCallS), # call_2s v4+
 		method(:insCallN), # call_2n v5+
-		nil, # set_colour v5+
-		nil, # throw v5+
+		method(:insSetColour), # set_colour v5+
+		method(:insThrow), # throw v5+
 	],
 	OPCODE_TYPE_VAR => [
 		method(:insCallS),
@@ -2222,15 +2246,15 @@ $opcode_routines = {
 		method(:insRestoreZ5),
 		method(:insLogShift),
 		method(:insArtShift),
-		method(:insSetFont), #set_font v5+
+		method(:insSetFont),
 		nil,
 		nil,
 		nil,
 		nil,
 		method(:insSaveUndo),
 		method(:insRestoreUndo),
-		nil, #print_unicode v5+
-		nil, #check_unicode v5+
+		method(:insPrintUnicode),
+		method(:insCheckUnicode),
 		nil, #set_true_colour v5+
 	],
 }
@@ -2486,9 +2510,9 @@ len = $z.length
 $zcode_version = -1
 $zcode_version = $z[0].ord if len > 0
 
-if len < 64 or len > 512 * 1024 or $zcode_version.to_s !~ /^[12345]$/
+if len < 64 or len > 512 * 1024 or $zcode_version.to_s !~ /^[1234578]$/
 	puts "The file #{$storyfile_name} doesn't seem to be a valid Z-code file, " +
-			"using Z-code version 1, 2, 3 or 4."
+			"using Z-code version 1, 2, 3, 4, 5, 7 or 8."
 	exit 1
 end
 
