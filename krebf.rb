@@ -742,12 +742,14 @@ class StackClass
 		@stack.length
 	end
 	def throw(value, target_depth)
+#		$streams.printZSCIIString "THROW #{value}, #{target_depth} (current depth = #{depth()})"
 		if depth() < target_depth
 			fatalErr "PC=$#{$pc.to_s(16)}: stack.throw: No such frame (#{target_depth})!"
 		end
 		packCurrentFrame()
-		@stack = @stack.first(target_depth)
-		return(value)
+		@stack = @stack.take(target_depth)
+#		$streams.printZSCIIString "POSTTHROW #{value}, #{target_depth} (current depth = #{depth()})"
+		doReturn value
 	end
 	def packCurrentFrame
 		frame = @stack.last
@@ -819,7 +821,7 @@ class StackClass
 		end
 		@stack.push new_frame
 	end
-	def return(value)
+	def doReturn(value)
 		frame = @stack.pop
 		$pc = frame['ret']
 		store = frame['sto']
@@ -893,7 +895,7 @@ def condBranch(result)
 	end
 #	puts "Final offset is #{offset}!"
 	if offset == 0 or offset == 1
-		$stack.return offset;
+		$stack.doReturn offset;
 	else
 		$pc += offset - 2
 	end	
@@ -1071,11 +1073,11 @@ end
 ####################################
 
 def insRtrue
-	$stack.return 1
+	$stack.doReturn 1
 end
 
 def insRfalse
-	$stack.return 0
+	$stack.doReturn 0
 end
 
 def insPrint
@@ -1085,7 +1087,7 @@ end
 def insPrintRet
 	$pc = printAtAddress($pc)
 	$streams.printZSCIIString "\n";
-	$stack.return 1
+	$stack.doReturn 1
 end
 
 def insNop
@@ -1186,7 +1188,7 @@ def insRestart
 end
 
 def insRetPopped
-	$stack.return $stack.pop
+	$stack.doReturn $stack.pop
 end
 
 def insPop
@@ -1392,7 +1394,7 @@ def insPrintObj
 end
 
 def insRet
-	$stack.return $args[0]
+	$stack.doReturn $args[0]
 end
 
 def insJump
