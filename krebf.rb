@@ -194,12 +194,14 @@ class ScreenClass
 	end
 	def refreshTopWindow
 		return if @top_window_lines == 0
-		(line, col) = IO.console.cursor()
+#		(line, col) = IO.console.cursor()
 		IO.console.goto(@top_window_start, 0)
 		@top_window_lines.times do |i|
 			puts @window_content[@top_window_start + i]
 		end
-		IO.console.goto(line, col)
+#		IO.console.goto(line, col)
+		cur = @cursor[@window]
+		IO.console.goto(cur['line'], cur['col'])
 	end
 	def selectWindow(window)
 		if impossibleWindow(window)
@@ -260,12 +262,14 @@ class ScreenClass
 	end
 	def refreshStatusline
 		return if $zcode_version > 3
-		(line, col) = IO.console.cursor()
+#		(line, col) = IO.console.cursor()
 		IO.console.goto(0, 0)
 		print "\033[7m " # Reverse text
 		print @window_content[0]
 		print "\033[0m" # Normal text (reverse off)
-		IO.console.goto(line, col)
+#		IO.console.goto(line, col)
+		cur = @cursor[@window]
+		IO.console.goto(cur['line'], cur['col'])
 	end
 	def showStatusline # Only used for v1-v3
 		return if $zcode_version > 3
@@ -317,8 +321,9 @@ class ScreenClass
 				IO.console.goto(@bottom_window_start + i, 0)
 				print @window_content[@bottom_window_start + i]
 			end
-#			IO.console.goto(@screen_height - 2, 0)
-			IO.console.goto(@cursor[0]['line'], @cursor[0]['col'])
+#			IO.console.goto(@cursor[0]['line'], @cursor[0]['col'])
+			cur = @cursor[@window]
+			IO.console.goto(cur['line'], cur['col'])
 		end
 	end
 	def bottomScroll
@@ -442,14 +447,13 @@ class ScreenClass
 					if newlinePos
 						if newlinePos > 0
 							printPartialLine str[0, newlinePos]
-						else
-							newline()
 						end
+						newline()
 						str = str[newlinePos + 1 ..]
 					end
 				end
 				# There are no newlines in str from this point
-				printPartialLine str
+				printPartialLine str unless str.empty?
 			else
 				# Statusline (2)
 				newlinePos = str.index(/\n/)
@@ -1989,6 +1993,10 @@ def insSoundEffect
 end
 
 def insReadChar
+	$screen.flushBuffer()
+	$screen.refreshTopWindow()
+	$screen.refreshBottomWindow()
+	$screen.bottom_clear_lines()
 	key = $screen.readChar()
 	setVar(readByteAtPC(), key.ord)
 end
