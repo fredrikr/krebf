@@ -475,34 +475,44 @@ class ScreenClass
 	end
 
 	def get_key_state
-	  STDIN.raw do |io|
-		begin
-		  input = io.read_nonblock(3)
+		STDIN.raw do |io|
+			begin
+				if @input_queue and @input_queue.length > 1
+					input = @input_queue[0]
+					@input_queue = @input_queue[1,]
+					return input
+				end
+				
+				input = io.read_nonblock(3)
 
-		  # Normalize Windows arrow keys
-		  if Gem.win_platform?
-			case input
-			when "\xE0H" then return :up
-			when "\xE0P" then return :down
-			when "\xE0K" then return :left
-			when "\xE0M" then return :right
+				# Normalize Windows arrow keys
+				if Gem.win_platform?
+					case input
+						when "\xE0H" then return :up
+						when "\xE0P" then return :down
+						when "\xE0K" then return :left
+						when "\xE0M" then return :right
+					end
+				else
+					# Normalize Linux/macOS escape sequences
+					case input
+						when "\e[A" then return :up
+						when "\e[B" then return :down
+						when "\e[C" then return :right
+						when "\e[D" then return :left
+					end
+				end
+				
+				if input and input.length > 1
+					@input_queue = input[1,]
+					input = @input_queue[0]
+				end
+				return input
+
+			rescue IO::WaitReadable, EOFError
+				return nil
 			end
-		  else
-			# Normalize Linux/macOS escape sequences
-			case input
-			when "\e[A" then return :up
-			when "\e[B" then return :down
-			when "\e[C" then return :right
-			when "\e[D" then return :left
-			end
-		  end
-
-		  return input
-
-		rescue IO::WaitReadable, EOFError
-		  return nil
 		end
-	  end
 	end
 	def readChar
 		loop do
