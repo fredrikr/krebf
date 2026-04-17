@@ -383,15 +383,10 @@ class ScreenClass
 				while str and newlinePos do
 					newlinePos = str.index(/\n/)
 					if newlinePos
-						if newlinePos > 0
-							printBuffered(str[0, newlinePos], true)
-							newline()
-							bottom_add_line()
-						else
-							flushBuffer()
-							newline()
-							bottom_add_line()
-						end
+						printBuffered(str[0, newlinePos]) if newlinePos > 0
+						flushBuffer()
+						newline()
+						bottom_add_line()
 						str = str[newlinePos + 1 ..]
 					end
 				end
@@ -417,13 +412,9 @@ class ScreenClass
 				while str and newlinePos do
 					newlinePos = str.index(/\n/)
 					if newlinePos
-						if newlinePos > 0
-							printBuffered(str[0, newlinePos])
-						end
-#						else
-							newline()
-							bottom_add_line()
-#						end
+						printBuffered(str[0, newlinePos]) if newlinePos > 0
+						newline()
+						bottom_add_line()
 						str = str[newlinePos + 1 ..]
 					end
 				end
@@ -507,6 +498,19 @@ class ScreenClass
 					@input_queue = input[1,]
 					input = @input_queue[0]
 				end
+#				if input == '9'  # DEBUG ONLY
+#					z = "Window = #{@window}\n" + 
+#						"top_window_start = #{@top_window_start},\n" + 
+#						"top_window_lines = #{@top_window_lines},\n" + 
+#						"bottom_window_start = #{@bottom_window_start},\n" + 
+#						"bottom_window_lines = #{@bottom_window_lines},\n" +
+#						"outputStreams = #{$streams.outputStreams.to_s}"
+#					unsplit()
+#					selectWindow(0)
+#					printBuffered z
+#					fatalErr "pc is #{$pc}"
+#				end
+				
 				return input
 
 			rescue IO::WaitReadable, EOFError
@@ -560,6 +564,9 @@ class StreamsClass
 		]
 		@commands = ""
 	end
+	def outputStreams
+		@outputStreams
+	end
 	def activateInput(stream)
 		return false if !stream or stream < 0 or stream > 1
 		return true if @inputStreams[stream]['active']
@@ -601,7 +608,6 @@ class StreamsClass
 					@commands = @commands[pos + 1 ..]
 				else
 					command = @commands
-#					$screen.printBuffered ">#{command}<"
 					@commands = ""
 				end
 				printASCIICommand(command, true)
@@ -613,7 +619,9 @@ class StreamsClass
 		return false if !stream or stream < 1 or stream > 4
 		hash = @outputStreams[stream]
 		return true if hash['active']
-		if stream == 2 and !hash.has_key? 'filename'
+		if stream == 1
+			hash['active'] = true
+		elsif stream == 2 and !hash.has_key? 'filename'
 			$screen.printBuffered("Please enter filename for transcript: ", true)
 			filename = STDIN.gets.chomp
 			if filename.length == 0
@@ -637,7 +645,6 @@ class StreamsClass
 			hash['active'] = true
 			arg2 = arg + 2
 			hash['stack'] = hash['stack'].push({'start' => arg, 'current' => arg2 })
-#			$screen.printBuffered(@outputStreams.to_s, true)
 		elsif stream == 4
 			$screen.printBuffered("Please enter filename for command recording: ", true)
 			filename = STDIN.gets.chomp
@@ -660,9 +667,8 @@ class StreamsClass
 	def inactivateOutput(stream, reset = false)
 		return false if !stream or stream < 1 or stream > 4
 		hash = @outputStreams[stream]
-		return true if !hash['active']
+		return true unless hash['active']
 		hash['active'] = false
-#		$screen.printBuffered @outputStreams.to_s
 		if stream == 2
 			writeWord(0x10, readWord(0x10) & 0xfffe)
 		elsif stream == 3
