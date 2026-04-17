@@ -128,7 +128,7 @@ class ScreenClass
 		@cursor[window] = 
 				{ 
 					'line' => @window_properties[window]['start'] + 
-								@window_properties[0]['lines'] - 1,
+								@window_properties[window]['lines'] - 1,
 					'col' => 0 
 				}
 	end
@@ -230,8 +230,8 @@ class ScreenClass
 					"Tried to clear impossible window: " + 
 					(window != nil ? window.to_s : 'nil')
 		end
-		clear_from = @window_properties[0]['start']
-		clear_to = @window_properties[0]['start'] + @window_properties[0]['lines'] - 1
+		clear_from = @window_properties[window]['start']
+		clear_to = @window_properties[window]['start'] + @window_properties[window]['lines'] - 1
 		clearLines(clear_from, clear_to) if clear_from >= 0
 		refreshWindow(window)
 	end
@@ -461,6 +461,7 @@ class ScreenClass
 		end
 	end
 	def readChar
+		@input_queue = ""
 		loop do
 			key = get_key_state()
 			return key if key
@@ -468,10 +469,14 @@ class ScreenClass
 		end
 	end
 	def readInput(max_chars)
+		@input_queue = ""
 		total = ""
 		loop do
 			key = get_key_state()
-			if key == 13.chr
+			if !key
+				sleep 0.05
+				next
+			elsif key == 10.chr or key == 13.chr
 				return total
 			elsif key == 8.chr
 				if total.length > 0
@@ -1655,32 +1660,131 @@ def encodeWord(word)
 	bin
 end
 
-def dictLookup(encodedWord)
-	return 0 if $dict_entry_count == 0
+def dictLookup(encodedWord, dictionary)
+	return 0 if dictionary['entry_count'] == 0
+
+#	dictionary = $base_dictionary
+#	{
+#		'separators' => dict_separators,
+#		'entry_length' => dict_entry_length,
+#		'entry_count' => dict_entry_count < 0 ? (-dict_entry_count) : dict_entry_count,
+#		'ordered' => dict_entry_count < 0 ? 0 : 1,
+#		'first_entry_address' => dict_base
+#	}
 	
 	compare_length_m1 = ($zcode_version < 4 ? 4 : 6) - 1
 	first = 0
-	last = $dict_entry_count - 1
+	last = dictionary['entry_count'] - 1
 	
-	while last > first do
-		mid = (first + last) / 2
-		mid_address = $dict_base + $dict_entry_length * mid
-		compare = $z[mid_address .. mid_address + compare_length_m1] <=> encodedWord
-		if compare == 0
-			return mid_address
-		elsif compare < 0
-			first = mid + 1
+	if dictionary['ordered'] == 1
+		while last > first do
+			mid = (first + last) / 2
+			mid_address = dictionary['first_entry_address'] + 
+					dictionary['entry_length'] * mid
+			compare = $z[mid_address .. mid_address + compare_length_m1] <=> encodedWord
+			if compare == 0
+				return mid_address
+			elsif compare < 0
+				first = mid + 1
+			else
+				last = mid - 1
+			end
+		end
+		first_address = dictionary['first_entry_address'] + 
+				dictionary['entry_length'] * first
+		if $z[first_address .. first_address + compare_length_m1] == encodedWord
+			return first_address
+		end
+	else
+		# Unordered dictionary
+		address = dictionary['first_entry_address']
+		first.upto(last) do
+			compare = $z[address .. address + compare_length_m1] <=> encodedWord
+			return address if compare == 0
+			address += dictionary['entry_length']
+		end
+	end
+	0
+end
+
+def tokenise(buffer, parse, dictionary, flag)
+
+	separators = dictionary['separators']
+
+	buffer_pointer_start = buffer + ($zcode_version > 4 ? 2 : 1)
+	buffer_pointer = buffer_pointer_start
+	maxparse = readByte(parse)
+
+	### Split input into words
+
+	words = []
+	word_start = nil
+	string_pointer = 0
+	last_char = nil
+	
+	max_input_length = readByte(buffer)
+	input_length = readByte(buffer+1)
+	if $zcode_version < 5
+		len = $z[buffer_pointer_start, max_input_length].index(0.chr)
+		if len
+			input_length = len
 		else
-			last = mid - 1
+			input_length = max_input_length
 		end
 	end
 
-	first_address = $dict_base + $dict_entry_length * first
-	if $z[first_address .. first_address + compare_length_m1] == encodedWord
-		return first_address
+	input = $z[buffer_pointer_start, input_length]
+
+	buffer_pointer_start.upto(buffer_pointer_start + input_length - 1) do |char_address|
+#	input.each_char do |char|
+		char = $z[char_address]
+		charcode = char.ord
+
+		accentedpos = $default_unicode.index(char)
+		charcode = accentedpos + 155 if accentedpos
+
+		if word_start
+			if char == ' ' or
+					separators.include? char or 
+					separators.include? last_char
+				word = input[word_start .. string_pointer - 1]
+				hash = { 'word' => word, 'start' => word_start + 1 }
+				words.push hash
+				word_start = nil
+			end
+		end
+		if word_start == nil && char != ' '
+			word_start = string_pointer
+		end
+		last_char = char
+		string_pointer += 1
 	end
 
-	0
+	if word_start
+		word = input[word_start .. string_pointer - 1]
+		hash = { 'word' => word, 'start' => word_start + 1}
+		words.push hash 
+	end
+	
+	### Parse words
+
+	if parse != 0
+		parsed = 0
+		words.each do |hash|
+			break if parsed >= maxparse
+			word = hash['word']
+			dict = dictLookup(encodeWord(word), dictionary)
+			if flag == false or dict != 0
+				writeWord(parse + 4 * parsed + 2, dict)
+			end
+			writeByte(parse + 4 * parsed + 4, word.length)
+			writeByte(parse + 4 * parsed + 5, 
+						hash['start'] + ($zcode_version > 4 ? 1 : 0))
+			parsed += 1
+		end
+		writeByte(parse + 1, parsed)
+	end
+	
 end
 
 def insRead
@@ -1688,9 +1792,8 @@ def insRead
 	buffer = $args[0]
 	byte0 = readByte(buffer)
 	maxchars = $zcode_version < 5 ? byte0 - 1 : byte0
-	parse = $args[1]
-	maxparse = readByte(parse)
-
+	parse = $args.length > 1 ? $args[1] : 0
+	
 	### Perform input from keyboard
 	
 	$screen.flushBuffer()
@@ -1703,13 +1806,10 @@ def insRead
 	input = $streams.readInput(maxchars)[0 .. maxchars - 1].downcase
 	$streams.printASCIICommand(input, true)
 
-	### Write input into memory, and split it into words
+	### Write input into memory
 
-	words = []
-	word_start = nil
-	buffer_pointer = buffer + 1
-	string_pointer = 0
-	last_char = nil
+	buffer_pointer_start = buffer + ($zcode_version > 4 ? 2 : 1)
+	buffer_pointer = buffer_pointer_start
 
 	input.each_char do |char|
 		charcode = char.ord
@@ -1718,51 +1818,22 @@ def insRead
 		charcode = accentedpos + 155 if accentedpos
 
 		writeByte(buffer_pointer, charcode)
-		if word_start
-			if char == ' ' or
-					$dict_separators.include? char or 
-					$dict_separators.include? last_char
-				word = input[word_start .. string_pointer - 1]
-				hash = { 'word' => word, 'start' => word_start + 1 }
-				words.push hash
-				word_start = nil
-			end
-		end
-		if word_start == nil && char != ' '
-			word_start = string_pointer
-		end
-		last_char = char
 		buffer_pointer += 1
-		string_pointer += 1
 	end
 
-	if word_start
-		word = input[word_start .. string_pointer - 1]
-		hash = { 'word' => word, 'start' => word_start + 1}
-		words.push hash 
-	end
-	
 	if $zcode_version < 4
 		writeByte(buffer_pointer, 0)
+	else
+		input_length = buffer_pointer - buffer_pointer_start
+		writeByte(buffer + 1, input_length)
 	end
 
-	### Parse words
-
-	parsed = 0
-	words.each do |hash|
-		break if parsed >= maxparse
-		word = hash['word']
-		dict = dictLookup(encodeWord(word))
-		writeWord(parse + 4 * parsed + 2, dict)
-		writeByte(parse + 4 * parsed + 4, word.length)
-		writeByte(parse + 4 * parsed + 5, hash['start'])
-		parsed += 1
+	if parse > 0
+		tokenise(buffer, parse, $base_dictionary, false)
 	end
-
-	writeByte(parse + 1, parsed)
-
-	setVar(readByteAtPC(), 13) if $zcode_version > 4
 	
+#	$screen.printBuffered "#{readByte(buffer+0)},#{readByte(buffer+1)},#{readByte(buffer+2)},#{readByte(buffer+3)},#{readByte(buffer+4)}."
+	setVar(readByteAtPC(), 13) if $zcode_version > 4
 end
 
 def insPrintChar
@@ -1977,6 +2048,15 @@ def insScanTable
 	
 	setVar(readByteAtPC(), address)
 	condBranch(found)
+end
+
+def insTokenise
+	tokenise(
+		$args[0], # Text-buffer
+		$args[1], # Parse-buffer
+		($args.length > 2 ? parseDictionary($args[2]) : $base_dictionary), # Dictionary 
+		($args.length > 3 ? $args[3] : 0) # flag
+	)
 end
 
 def insCopyTable
@@ -2195,7 +2275,7 @@ $opcode_routines = {
 		method(:insNot), #not v5+
 		method(:insCallN), #call_vn v5+
 		method(:insCallN), #call_vn2 v5+
-		nil, #tokenise v5+
+		method(:insTokenise), #tokenise v5+
 		nil, #encode v5+
 		method(:insCopyTable),
 		method(:insPrintTable),
@@ -2378,6 +2458,21 @@ def updateHeader
 
 end
 
+def parseDictionary(address)
+	sep_count = readByte(address)
+	dict_separators = $z[address + 1  .. address + sep_count]
+	dict_entry_length = readByte(address + sep_count + 1)
+	dict_entry_count = toSigned(readWord(address + sep_count + 2))
+	dict_base = address + sep_count + 4
+	{
+		'separators' => dict_separators,
+		'entry_length' => dict_entry_length,
+		'entry_count' => dict_entry_count < 0 ? (-dict_entry_count) : dict_entry_count,
+		'ordered' => dict_entry_count < 0 ? 0 : 1,
+		'first_entry_address' => dict_base
+	}
+end
+
 def initializeGame
 
 	$stack = StackClass.new
@@ -2401,12 +2496,12 @@ def initializeGame
 	$pc = readWord(6)
 	$object_table = readWord(0xa)
 
-	$dictionary = readWord(0x8)
-	sep_count = readByte($dictionary)
-	$dict_separators = $z[$dictionary + 1  .. $dictionary + sep_count]
-	$dict_entry_length = readByte($dictionary + sep_count + 1)
-	$dict_entry_count = readWord($dictionary + sep_count + 2)
-	$dict_base = $dictionary + sep_count + 4
+	$base_dictionary = parseDictionary(readWord(0x8))
+#	sep_count = readByte($dictionary)
+#	$dict_separators = $z[$dictionary + 1  .. $dictionary + sep_count]
+#	$dict_entry_length = readByte($dictionary + sep_count + 1)
+#	$dict_entry_count = readWord($dictionary + sep_count + 2)
+#	$dict_base = $dictionary + sep_count + 4
 
 	$routine_offset = $zcode_version == 7 ? 8 * readWord(0x28) : nil
 	$string_offset = $zcode_version == 7 ? 8 * readWord(0x2a) : nil
@@ -2538,7 +2633,7 @@ while $quit == false do
 	end
 	func = funcs[$instruction['opcode_number']]
 
-	if address == 0x2e8d000
+	if address == 0x72130000
 		puts $stack.stackForSave.to_s
 		puts "PC=$#{address.to_s(16)}, Ins = #{$instruction}" #if $trace
 		fatalErr "BREAK!"
