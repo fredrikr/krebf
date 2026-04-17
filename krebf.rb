@@ -1968,6 +1968,7 @@ def insEraseWindow
 end
 
 def insEraseLine
+	# DEBUG ONLY
 	puts "Erase Line"
 	exit 1	
 end
@@ -2057,6 +2058,12 @@ def insTokenise
 		($args.length > 2 ? parseDictionary($args[2]) : $base_dictionary), # Dictionary 
 		($args.length > 3 ? $args[3] : 0) # flag
 	)
+end
+
+def insEncodeText
+	zscii_text = $z[$args[0] + toSigned($args[2]), $args[1]]
+	encoded_text = encodeWord(zscii_text)
+	$z[$args[3], 6] = encoded_text
 end
 
 def insCopyTable
@@ -2276,7 +2283,7 @@ $opcode_routines = {
 		method(:insCallN), #call_vn v5+
 		method(:insCallN), #call_vn2 v5+
 		method(:insTokenise), #tokenise v5+
-		nil, #encode v5+
+		method(:insEncodeText),
 		method(:insCopyTable),
 		method(:insPrintTable),
 		method(:insCheckArgCount),
