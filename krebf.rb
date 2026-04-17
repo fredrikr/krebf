@@ -73,17 +73,19 @@ class ScreenClass
 		@buffered = true
 		@window = 0
 		@bottom_printed_lines = 0
-#		@cursor[0]['col'] = 0
-		@top_window_start = $zcode_version < 4 ? 1 : 0
-		@top_window_lines = 0
 		@window_content = []
 		clearLines(0, @screen_height - 1)
+		statusHeight = ($zcode_version < 4 ? 1 : 0)
+		@window_properties = [
+			{ 'start' => statusHeight, 'lines' => 0 },
+			{ 'start' => statusHeight, 'lines' => 0 },
+			{ 'start' => 0, 'lines' => statusHeight }
+		]
 		@cursor = [
 			{ 'line' => @screen_height - 1, 'col' => 0 },
 			{ 'line' => 0, 'col' => 0 },
 			{ 'line' => 0, 'col' => 0 },
 		]
-		IO.console.goto(@cursor[0]['line'], @cursor[0]['col'])
 		unsplit()
 	end
 	def buffered
@@ -115,14 +117,7 @@ class ScreenClass
 					(window != nil ? window.to_s : 'nil')
 		end
 		@cursor[window] = 
-			case
-				when window == 0 then
-					{ 'line' => @bottom_window_start, 'col' => 0 }
-				when window == 1 then
-					{ 'line' => @top_window_start, 'col' => 0 }
-				when window == 2 then
-					{ 'line' => 0, 'col' => 0 }
-			end
+			{ 'line' => @window_properties[window]['start'], 'col' => 0 }
 	end
 	def setCursorBottomLeft(window)
 		if impossibleWindow(window)
@@ -131,77 +126,74 @@ class ScreenClass
 					(window != nil ? window.to_s : 'nil')
 		end
 		@cursor[window] = 
-			case
-				when window == 0 then
-					{ 
-						'line' => @bottom_window_start + @bottom_window_lines - 1,
-						'col' => 0 
-					}
-				when window == 1 then
-					{ 'line' => @bottom_window_start - 1, 'col' => 0 }
-				when window == 2 then
-					{ 'line' => 0, 'col' => 0 }
-			end
+				{ 
+					'line' => @window_properties[window]['start'] + 
+								@window_properties[0]['lines'] - 1,
+					'col' => 0 
+				}
 	end
 	def unsplit
 		if $zcode_version < 4
-			clearLines(@top_window_start, @top_window_start + @top_window_lines - 1)
+			clearLines(@window_properties[1]['start'], @window_properties[1]['start'] + @window_properties[1]['lines'] - 1)
 		end
-		@top_window_lines = 0
-		@bottom_window_start = @top_window_start + @top_window_lines
-		@bottom_window_lines = @screen_height - @bottom_window_start
-		@cursor[1]['line'] = @top_window_start
-		@cursor[1]['col'] = 0
+		@window_properties[1]['lines'] = 0
+		@window_properties[0]['start'] = @window_properties[1]['start'] + @window_properties[1]['lines']
+		@window_properties[0]['lines'] = @screen_height - @window_properties[0]['start']
+		setCursorTopLeft(1)
 	end
 	def split(top_lines)
-		old_lines = @top_window_lines
+		old_lines = @window_properties[1]['lines']
 		clear_from = -1
 		clear_to = -1
 		top_lines = 0 if top_lines < 0
-		top_lines = @top_window_lines + @bottom_window_lines if 
-				top_lines > @top_window_lines + @bottom_window_lines
-		if top_lines != @top_window_lines
-			if @top_window_lines > 0
+		top_lines = @window_properties[1]['lines'] + @window_properties[0]['lines'] if 
+				top_lines > @window_properties[1]['lines'] + @window_properties[0]['lines']
+		if top_lines != @window_properties[1]['lines']
+			if @window_properties[1]['lines'] > 0
 				# Resize
-				if top_lines < @top_window_lines
+				if top_lines < @window_properties[1]['lines']
 					# Top window gets smaller, clear part that is now returned to bottom window
-					clear_from = @top_window_start + top_lines
-					clear_to = @bottom_window_start - 1
+					clear_from = @window_properties[1]['start'] + top_lines
+					clear_to = @window_properties[0]['start'] - 1
 				else
 					# Top window gets bigger, clear new part of top window
-					clear_from = @top_window_start + @top_window_lines
-					clear_to = @top_window_start + top_lines - 1
+					clear_from = @window_properties[1]['start'] + @window_properties[1]['lines']
+					clear_to = @window_properties[1]['start'] + top_lines - 1
 				end
 			else
-				clear_from = @top_window_start
-				clear_to = @top_window_start + top_lines - 1				
+				clear_from = @window_properties[1]['start']
+				clear_to = @window_properties[1]['start'] + top_lines - 1				
 			end
 						
 			clearLines(clear_from, clear_to) if $zcode_version < 4 and clear_from >= 0
 
-			@top_window_lines = top_lines
-			@bottom_window_start = @top_window_start + @top_window_lines
-			@bottom_window_lines = @screen_height - @bottom_window_start
-			if @cursor[0]['line'] < @bottom_window_start
-				@cursor[0] = { 'line' => @bottom_window_start, 'col' => 0 }
+			@window_properties[1]['lines'] = top_lines
+			@window_properties[0]['start'] = @window_properties[1]['start'] + 
+												@window_properties[1]['lines']
+			@window_properties[0]['lines'] = @screen_height - 
+												@window_properties[0]['start']
+			if @cursor[0]['line'] < @window_properties[0]['start']
+				@cursor[0] = { 'line' => @window_properties[0]['start'], 'col' => 0 }
 			end
 			if old_lines == 0
-				@cursor[1]['line'] = @top_window_start
+				@cursor[1]['line'] = @window_properties[1]['start']
 				@cursor[1]['col'] = 0
 			end
 		end
-		refreshTopWindow()
+		refreshWindow(1)
 	end
-	def refreshTopWindow
-		return if @top_window_lines == 0
-#		(line, col) = IO.console.cursor()
-		IO.console.goto(@top_window_start, 0)
-		@top_window_lines.times do |i|
-			puts @window_content[@top_window_start + i]
+	def refreshWindow(window)
+		return if $zcode_version > 3 and window > 1
+		if @window_properties[window]['lines'] > 0
+			print "\033[7m " if window == 2 # Reverse text
+			@window_properties[window]['lines'].times do |i|
+				IO.console.goto(@window_properties[window]['start'] + i, 0)
+				print @window_content[@window_properties[window]['start'] + i]
+			end
+			print "\033[0m" if window == 2 # Normal text (reverse off)
+			cur = @cursor[@window]
+			IO.console.goto(cur['line'], cur['col'])
 		end
-#		IO.console.goto(line, col)
-		cur = @cursor[@window]
-		IO.console.goto(cur['line'], cur['col'])
 	end
 	def selectWindow(window)
 		if impossibleWindow(window)
@@ -238,38 +230,10 @@ class ScreenClass
 					"Tried to clear impossible window: " + 
 					(window != nil ? window.to_s : 'nil')
 		end
-		clear_from = -1
-		clear_to = -1
-		if window == 0
-			clear_from = @bottom_window_start
-			clear_to = @bottom_window_start + @bottom_window_lines - 1
-		elsif window == 1
-			clear_from = @top_window_start
-			clear_to = @bottom_window_start - 1
-		elsif window == 2
-			clear_from = 0
-			clear_to = 0
-		end
+		clear_from = @window_properties[0]['start']
+		clear_to = @window_properties[0]['start'] + @window_properties[0]['lines'] - 1
 		clearLines(clear_from, clear_to) if clear_from >= 0
-		case
-			when window == 0
-				refreshBottomWindow()
-			when window == 1
-				refreshTopWindow()
-			when window == 2
-				refreshStatusline()
-		end
-	end
-	def refreshStatusline
-		return if $zcode_version > 3
-#		(line, col) = IO.console.cursor()
-		IO.console.goto(0, 0)
-		print "\033[7m " # Reverse text
-		print @window_content[0]
-		print "\033[0m" # Normal text (reverse off)
-#		IO.console.goto(line, col)
-		cur = @cursor[@window]
-		IO.console.goto(cur['line'], cur['col'])
+		refreshWindow(window)
 	end
 	def showStatusline # Only used for v1-v3
 		return if $zcode_version > 3
@@ -295,10 +259,10 @@ class ScreenClass
 		end
 		
 		@window = win
-		refreshStatusline()
+		refreshWindow(2)
 	end
 	def more
-		if @bottom_window_lines > 1
+		if @window_properties[0]['lines'] > 1
 			IO.console.goto(@screen_height - 1, 0)
 			print " -- MORE --"
 			$screen.readChar()
@@ -313,57 +277,44 @@ class ScreenClass
 	end
 	def bottom_add_line
 		@bottom_printed_lines += 1
-		more() if @bottom_printed_lines >= @bottom_window_lines - 1
-	end
-	def refreshBottomWindow
-		if @bottom_window_lines > 0
-			@bottom_window_lines.times do |i|
-				IO.console.goto(@bottom_window_start + i, 0)
-				print @window_content[@bottom_window_start + i]
-			end
-#			IO.console.goto(@cursor[0]['line'], @cursor[0]['col'])
-			cur = @cursor[@window]
-			IO.console.goto(cur['line'], cur['col'])
-		end
+		more() if @bottom_printed_lines >= @window_properties[0]['lines'] - 1
 	end
 	def bottomScroll
-		@window_content[@bottom_window_start, @bottom_window_lines] =
-			@window_content[@bottom_window_start + 1, @bottom_window_lines - 1] +
+		@window_content[@window_properties[0]['start'], @window_properties[0]['lines']] =
+			@window_content[@window_properties[0]['start'] + 1, 
+			@window_properties[0]['lines'] - 1] +
 				[' ' * (@screen_width - 1)]
-		refreshBottomWindow()
+		refreshWindow(0)
 	end
 	def newline
 		if @window == 0
-			if @cursor[0]['line'] >= @bottom_window_start + @bottom_window_lines - 1
+			if @cursor[0]['line'] >= 
+					@window_properties[0]['start'] + 
+					@window_properties[0]['lines'] - 1
 				bottomScroll()
 			else
 				@cursor[0]['line'] += 1
 			end	
-			@cursor[0]['col'] = 0
-			refreshBottomWindow()
 		else
-			if @cursor[@window]['line'] < @bottom_window_start + @bottom_window_lines - 1
+			if @cursor[@window]['line'] < 
+					@window_properties[0]['start'] + 
+					@window_properties[0]['lines'] - 1
 				@cursor[@window]['line'] += 1
 			end
-			@cursor[@window]['col'] = 0
-			if @window == 1
-				refreshTopWindow()
-			else
-				refreshStatusline()
-			end
 		end
+		@cursor[@window]['col'] = 0
+		refreshWindow(@window)
 	end
 	def printPartialLine(str)
 		line = @cursor[@window]['line']
 		if line < 0 or line > @screen_height - 1 or 
-					@window == 0 && line < @bottom_window_start or
-					@window == 1 && line < @top_window_start
+					line < @window_properties[@window]['start'] 
 			fatalErr "PC=$#{$pc.to_s(16)}: screen.printPartialLine: " + 
 					"Tried to print to impossible line: " + 
 					(line != nil ? line.to_s : 'nil') +
 					" in window " + @window.to_s +
 					", screen_height is " + @screen_height.to_s +
-					", bottom_window_start is " + @bottom_window_start.to_s
+					", bottom_window_start is " + @window_properties[0]['start'].to_s
 		end
 		return if str.length == 0 or @window == 2 && line > 0
 		maxlength = @screen_width - 1 - @cursor[@window]['col']
@@ -372,7 +323,10 @@ class ScreenClass
 			puts @window_content.length
 			fatalErr "NO LINE!"
 		end
-		split(line + 1 - @top_window_start) if @window == 1 and line >= @bottom_window_start
+		# Auto-extend top window as needed
+		if @window == 1 and line >= @window_properties[0]['start']
+			split(line + 1 - @window_properties[1]['start'])
+		end
 		@window_content[line][@cursor[@window]['col'], str.length] = str
 		@cursor[@window]['col'] += str.length
 	end
@@ -457,7 +411,7 @@ class ScreenClass
 	def flushBuffer
 		if @buffer.length > 0
 			printPartialLine @buffer
-			refreshBottomWindow()
+			refreshWindow(0)
 			@buffer = ""
 		end
 	end
@@ -498,18 +452,6 @@ class ScreenClass
 					@input_queue = input[1,]
 					input = @input_queue[0]
 				end
-#				if input == '9'  # DEBUG ONLY
-#					z = "Window = #{@window}\n" + 
-#						"top_window_start = #{@top_window_start},\n" + 
-#						"top_window_lines = #{@top_window_lines},\n" + 
-#						"bottom_window_start = #{@bottom_window_start},\n" + 
-#						"bottom_window_lines = #{@bottom_window_lines},\n" +
-#						"outputStreams = #{$streams.outputStreams.to_s}"
-#					unsplit()
-#					selectWindow(0)
-#					printBuffered z
-#					fatalErr "pc is #{$pc}"
-#				end
 				
 				return input
 
@@ -723,7 +665,7 @@ class StreamsClass
 		if @outputStreams[1]['active'] and echoToScreen
 #			strASCII.each_char { |x| print"#{x.ord}," }
 			$screen.printBuffered(strASCII + "\n", true)
-			$screen.refreshBottomWindow()
+			$screen.refreshWindow(0)
 		end
 		if @outputStreams[2]['active']
 			File.open(@outputStreams[2]['filename'], 'a') do |file|
@@ -748,13 +690,11 @@ class StackClass
 		@stack.length
 	end
 	def throw(value, target_depth)
-#		$streams.printZSCIIString "THROW #{value}, #{target_depth} (current depth = #{depth()})"
 		if depth() < target_depth
 			fatalErr "PC=$#{$pc.to_s(16)}: stack.throw: No such frame (#{target_depth})!"
 		end
 		packCurrentFrame()
 		@stack = @stack.take(target_depth)
-#		$streams.printZSCIIString "POSTTHROW #{value}, #{target_depth} (current depth = #{depth()})"
 		doReturn value
 	end
 	def packCurrentFrame
@@ -968,7 +908,6 @@ def setChild(objaddress, child)
 end
 
 def printAtAddress(address, return_string = false)
-#		$streams.printZSCIIString("X") unless return_string
 	word = 0
 	alphabet_offset_lock = 0
 	alphabet_offset = 0
@@ -1057,7 +996,6 @@ def printAtAddress(address, return_string = false)
 	return str if return_string
 	
 	$streams.printZSCIIString str unless str.empty?
-#		$streams.printZSCIIString("Y")
 
 	address
 end
@@ -1214,8 +1152,6 @@ def forkInsPopOrCatch
 end
 
 def insQuit
-#	puts "<Hit any key to exit>";
-#	STDIN.gets
 	$quit = true
 end
 
@@ -1227,7 +1163,7 @@ def insShowStatus
 	# Works like NOP in v4+
 	if $zcode_version < 4
 		$screen.showStatusline()
-		$screen.refreshTopWindow()
+		$screen.refreshWindow(1)
 	end
 end
 
@@ -1759,8 +1695,8 @@ def insRead
 	
 	$screen.flushBuffer()
 	$screen.showStatusline() if $zcode_version < 4
-	$screen.refreshTopWindow()
-	$screen.refreshBottomWindow()
+	$screen.refreshWindow(1)
+	$screen.refreshWindow(0)
 	$screen.bottom_clear_lines()
 #	input = STDIN.gets.chomp[0 .. maxchars - 1].downcase
 #	IO.console.goto($screen.screen_height - 2, 0)
@@ -1855,7 +1791,6 @@ def rndNumber
 	$rnd_a = $rnd_x ^ $rnd_c ^ $rnd_a
 	$rnd_b = ($rnd_a + $rnd_b) & 0xff
 	$rnd_c = ((($rnd_b >> 1) ^ $rnd_a) + $rnd_c) & 0xff
-#	puts "rnd_a = #{$rnd_a.to_s(16)} rnd_b = #{$rnd_b.to_s(16)} rnd_c = #{$rnd_c.to_s(16)} rnd_x = #{$rnd_x.to_s(16)}"
 	$rnd_c
 end	
 
@@ -1991,7 +1926,6 @@ end
 
 def insOutputStream
 	stream = toSigned($args[0])
-#	$screen.printBuffered "STREAM IS #{stream}"
 	if stream < 0
 		$streams.inactivateOutput(-stream)
 	elsif stream == 3
@@ -2012,8 +1946,8 @@ end
 
 def insReadChar
 	$screen.flushBuffer()
-	$screen.refreshTopWindow()
-	$screen.refreshBottomWindow()
+	$screen.refreshWindow(1)
+	$screen.refreshWindow(0)
 	$screen.bottom_clear_lines()
 	key = $screen.readChar()
 	setVar(readByteAtPC(), key.ord)
@@ -2561,9 +2495,6 @@ if $disassembly_filename
 			end
 		end	
 	end
-#	puts $instructions.keys.sort.first(20)
-#	puts $instructions.keys.sort.last(20)
-#	exit 1
 end
 
 
