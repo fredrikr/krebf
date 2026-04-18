@@ -69,6 +69,9 @@ end
 class ScreenClass
 	def initialize
 		checkScreenSize()
+		@screen_height.times do
+			print "\n"
+		end
 		@buffer = ""
 		@buffered = true
 		@window = 0
@@ -99,10 +102,12 @@ class ScreenClass
 				window == 1 && $zcode_version < 3 or
 				window == 2 && $zcode_version > 3
 	end
-	def clear
-		IO.console.clear_screen
-		IO.console.goto(@screen_height - 1, 0)
-		@cursor[0]['col'] = 0
+	def movePhysicalCursor(line, col)
+		line = 0 if line < 0
+		line = @screen_height - 1 if line >= @screen_height
+		col = 0 if col <= 0
+		col = @screen_width - 2 if col >= @screen_width - 1
+		IO.console.goto(line, col)
 	end
 	def getCursor
 		return @cursor[@window]['line'], @cursor[@window]['col']
@@ -187,12 +192,12 @@ class ScreenClass
 		if @window_properties[window]['lines'] > 0
 			print "\033[7m " if window == 2 # Reverse text
 			@window_properties[window]['lines'].times do |i|
-				IO.console.goto(@window_properties[window]['start'] + i, 0)
+				movePhysicalCursor(@window_properties[window]['start'] + i, 0)
 				print @window_content[@window_properties[window]['start'] + i]
 			end
 			print "\033[0m" if window == 2 # Normal text (reverse off)
 			cur = @cursor[@window]
-			IO.console.goto(cur['line'], cur['col'])
+			movePhysicalCursor(cur['line'], cur['col'])
 		end
 	end
 	def selectWindow(window)
@@ -269,12 +274,12 @@ class ScreenClass
 	end
 	def more
 		if @window_properties[0]['lines'] > 1
-			IO.console.goto(@screen_height - 1, 0)
+			movePhysicalCursor(@screen_height - 1, 0)
 			print " -- MORE --"
 			$screen.readChar()
-			IO.console.goto(@screen_height - 2, 0)
+			movePhysicalCursor(@screen_height - 2, 0)
 			print "                "
-			IO.console.goto(@screen_height - 2, 0)
+			movePhysicalCursor(@screen_height - 2, 0)
 		end
 		bottom_clear_lines()
 	end
@@ -1808,7 +1813,7 @@ def insRead
 	$screen.refreshWindow(0)
 	$screen.bottom_clear_lines()
 #	input = STDIN.gets.chomp[0 .. maxchars - 1].downcase
-#	IO.console.goto($screen.screen_height - 2, 0)
+#	movePhysicalCursor($screen.screen_height - 2, 0)
 	input = $streams.readInput(maxchars)[0 .. maxchars - 1].downcase
 	$streams.printASCIICommand(input, true)
 
@@ -2097,7 +2102,7 @@ def insPrintTable
 	height.times do
 		$screen.setCursor(line, col)
 		$streams.printZSCIIString($z[address, width])
-		address += height + skip
+		address += (width + skip)
 		line += 1
 	end
 end
@@ -2537,7 +2542,7 @@ def initializeGame
 
 	updateHeader()
 	
-	$screen.clear()
+#	$screen.clear()
 	$args = [ 0xffff ]
 	insEraseWindow()
 end
