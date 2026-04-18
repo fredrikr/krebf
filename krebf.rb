@@ -235,6 +235,12 @@ class ScreenClass
 		clearLines(clear_from, clear_to) if clear_from >= 0
 		refreshWindow(window)
 	end
+	def eraseLine
+		line = @cursor[@window]['line']
+		col = @cursor[@window]['col']
+		@window_content[line][col,@screen_width - col - 1] = 
+				' ' * (@screen_width - col - 1)
+	end
 	def showStatusline # Only used for v1-v3
 		return if $zcode_version > 3
 		win = @window
@@ -1968,9 +1974,7 @@ def insEraseWindow
 end
 
 def insEraseLine
-	# DEBUG ONLY
-	puts "Erase Line"
-	exit 1	
+	$screen.eraseLine() if $args[0] == 1
 end
 
 def insSetCursor
