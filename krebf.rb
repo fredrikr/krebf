@@ -464,6 +464,11 @@ class ScreenClass
 					input = @input_queue[0]
 				end
 				
+#				if input == 'q' # DEBUG ONLY
+#					puts $debug.to_s
+#					exit 1
+#				end
+				
 				return input
 
 			rescue IO::WaitReadable, EOFError
@@ -576,7 +581,7 @@ class StreamsClass
 	def activateOutput(stream, arg = nil)
 		return false if !stream or stream < 1 or stream > 4
 		hash = @outputStreams[stream]
-		return true if hash['active']
+		return true if hash['active'] and stream != 3
 		if stream == 1
 			hash['active'] = true
 		elsif stream == 2 and !hash.has_key? 'filename'
@@ -602,7 +607,7 @@ class StreamsClass
 			fatalErr("Too many active memory streams!") if hash['stack'].length >= 16
 			hash['active'] = true
 			arg2 = arg + 2
-			hash['stack'] = hash['stack'].push({'start' => arg, 'current' => arg2 })
+			hash['stack'] += [{'start' => arg, 'current' => arg2 }]
 		elsif stream == 4
 			$screen.printBuffered("Please enter filename for command recording: ", true)
 			filename = STDIN.gets.chomp
@@ -626,11 +631,12 @@ class StreamsClass
 		return false if !stream or stream < 1 or stream > 4
 		hash = @outputStreams[stream]
 		return true unless hash['active']
-		hash['active'] = false
+		hash['active'] = false unless stream == 3
 		if stream == 2
 			writeWord(0x10, readWord(0x10) & 0xfffe)
 		elsif stream == 3
 			if reset
+				hash['active'] = false
 				hash.delete 'stack' if hash.has_key? 'stack'
 				return true
 			end
@@ -638,7 +644,10 @@ class StreamsClass
 			fatalErr("No active memory stream to close!") unless stack and !stack.empty?
 			frame = stack.pop
 			writeWord(frame['start'], frame['current'] - frame['start'] - 2)
-			hash.delete 'stack' if stack.empty?
+			if stack.empty?
+				hash['active'] = false
+				hash.delete 'stack'
+			end
 		end
 		true
 	end
@@ -815,7 +824,7 @@ def readGlobal(n)
 end
 
 def setGlobal(n, value)
-	address = 2 * n + readWord(0xc) - 32
+	address = 2 * n + $global_base
 	$z[address .. address + 1] = [value].pack('n')
 end
 
@@ -947,7 +956,8 @@ def printAtAddress(address, return_string = false)
 				char = (escape_code & 0xff).chr if escape_step == 0
 			elsif abbrev_bank > 0
 				alphabet_offset = 0
-				abbpointer = $abbrev_table + 2 * (32 * abbrev_bank - 32 + value)
+				abb = 32 * abbrev_bank - 32 + value
+				abbpointer = $abbrev_table + 2 * abb
 				abbaddress = 2 * readWord(abbpointer)
 				str += printAtAddress(abbaddress, true)
 				abbrev_bank = 0
@@ -1010,7 +1020,7 @@ def printAtAddress(address, return_string = false)
 	end
 
 	return str if return_string
-	
+
 	$streams.printZSCIIString str unless str.empty?
 
 	address
@@ -1046,7 +1056,7 @@ end
 
 def insPrintRet
 	$pc = printAtAddress($pc)
-	$streams.printZSCIIString "\n";
+	$streams.printZSCIIString 13.chr;
 	$stack.doReturn 1
 end
 
@@ -2082,7 +2092,9 @@ def insCopyTable
 	forward = true
 	forward = false if size_value >= 0 and first < second
 
-	if forward
+	if second == 0
+		$z[first, size] = (0.chr) * size
+	elsif forward
 		size.times do |i|
 			writeByte(second + i, readByte(first + i))
 		end
@@ -2628,6 +2640,7 @@ $addresses = []
 
 while $quit == false do
 	address = $pc
+
 	if $instructions
 		unless $instructions.has_key? $pc.to_s(16)
 			fatalErr "PC=$#{address.to_s(16)}: No instruction at this address!"
@@ -2640,6 +2653,11 @@ while $quit == false do
 	
 	$instruction = readInstruction()
 	$args = $instruction['operand_values']
+
+#	if address == 0x13809 # DEBUG ONLY
+#		fatalErr "address=$#{address.to_s(16)} PC=$#{$pc.to_s(16)} args=#{$args.to_s} COPY_TABLE"
+#	end
+
 	funcs = $opcode_routines[$instruction['opcode_type']]
 	if funcs.length < $instruction['opcode_number'] + 1 or 
 			funcs[$instruction['opcode_number']] == nil
