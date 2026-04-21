@@ -1948,7 +1948,7 @@ def insRead
 		buffer_pointer += 1
 	end
 
-	if $zcode_version < 4
+	if $zcode_version < 5
 		writeByte(buffer_pointer, 0)
 	else
 		input_length = buffer_pointer - buffer_pointer_start
