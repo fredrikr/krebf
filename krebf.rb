@@ -72,13 +72,16 @@ class ScreenClass
 		@screen_height.times do
 			print "\n"
 		end
+		@game_screen_height = @screen_height - 1
+		@game_screen_width = @screen_width - 1
+		
 		@buffer = ""
 		@buffered = true
 		@window = 0
 		@bottom_printed_lines = 0
 		@window_content = []
 		@window_style = []
-		clearLines(0, @screen_height - 1)
+		clearLines(0, @game_screen_height - 1)
 		statusHeight = ($zcode_version < 4 ? 1 : 0)
 		@window_properties = [
 			{ 'start' => statusHeight, 'lines' => 0 },
@@ -86,7 +89,7 @@ class ScreenClass
 			{ 'start' => 0, 'lines' => statusHeight }
 		]
 		@cursor = [
-			{ 'line' => @screen_height - 1, 'col' => 0 },
+			{ 'line' => @game_screen_height - 1, 'col' => 0 },
 			{ 'line' => 0, 'col' => 0 },
 			{ 'line' => 0, 'col' => 0 },
 		]
@@ -114,7 +117,7 @@ class ScreenClass
 		line = 0 if line < 0
 		line = @screen_height - 1 if line >= @screen_height
 		col = 0 if col <= 0
-		col = @screen_width - 2 if col >= @screen_width - 1
+		col = @screen_width - 1 if col >= @screen_width
 		IO.console.goto(line, col)
 	end
 	def getCursor
@@ -151,7 +154,7 @@ class ScreenClass
 		end
 		@window_properties[1]['lines'] = 0
 		@window_properties[0]['start'] = @window_properties[1]['start'] + @window_properties[1]['lines']
-		@window_properties[0]['lines'] = @screen_height - @window_properties[0]['start']
+		@window_properties[0]['lines'] = @game_screen_height - @window_properties[0]['start']
 		setCursorTopLeft(1)
 	end
 	def split(top_lines)
@@ -183,7 +186,7 @@ class ScreenClass
 			@window_properties[1]['lines'] = top_lines
 			@window_properties[0]['start'] = @window_properties[1]['start'] + 
 												@window_properties[1]['lines']
-			@window_properties[0]['lines'] = @screen_height - 
+			@window_properties[0]['lines'] = @game_screen_height - 
 												@window_properties[0]['start']
 			if @cursor[0]['line'] < @window_properties[0]['start']
 				@cursor[0] = { 'line' => @window_properties[0]['start'], 'col' => 0 }
@@ -261,6 +264,12 @@ class ScreenClass
 	def screen_width
 		@screen_width
 	end
+	def game_screen_height
+		@game_screen_height
+	end
+	def game_screen_width
+		@game_screen_width
+	end
 	def clearLines(from, to)
 		while @window_content.length < to + 1 do
 			@window_content += [nil]
@@ -269,7 +278,7 @@ class ScreenClass
 			@window_style += [nil]
 		end
 		from.upto(to) do |line|
-			@window_content[line] = ' ' * (@screen_width - 1)
+			@window_content[line] = ' ' * @game_screen_width
 			@window_style[line] = nil
 		end
 	end
@@ -287,8 +296,10 @@ class ScreenClass
 	def eraseLine
 		line = @cursor[@window]['line']
 		col = @cursor[@window]['col']
-		@window_content[line][col,@screen_width - col - 1] = 
-				' ' * (@screen_width - col - 1)
+		@window_content[line][col, @game_screen_width - col] = 
+				' ' * (@game_screen_width - col)
+		@window_style[line][col, @game_screen_width - col] = 
+			Array.new(@game_screen_width - col, 0) 
 	end
 	def showStatusline # Only used for v1-v3
 		return if $zcode_version > 3
@@ -297,19 +308,19 @@ class ScreenClass
 		setCursorTopLeft(2)
 
 		printObjectName(readGlobal(16))
-		printPartialLine ' ' * @screen_width # if @screen_width - s_col > 0
+		printPartialLine ' ' * @game_screen_width # if @screen_width - s_col > 0
 
 		if $zcode_version == 3 and readByte(1) & 2 != 0
-			@cursor[2]['col'] = @screen_width - 18
+			@cursor[2]['col'] = @game_screen_width - 17
 			hbase = readGlobal(17)
 			h = hbase > 12 ? hbase - 12 : (hbase == 0 ? 12 : hbase)
 			m = readGlobal(18).to_s.rjust(2,'0')
 			ampm = hbase < 12 ? 'AM' : 'PM'
 			printBuffered " Time: #{h}:#{m} #{ampm}   "
 		else
-			@cursor[2]['col'] = @screen_width - 25
+			@cursor[2]['col'] = @game_screen_width - 24
 			printBuffered " Score: #{readGlobal(17)}   "
-			@cursor[2]['col'] = @screen_width - 13
+			@cursor[2]['col'] = @game_screen_width - 12
 			printBuffered " Moves: #{readGlobal(18)}   "
 		end
 		
@@ -318,12 +329,12 @@ class ScreenClass
 	end
 	def more
 		if @window_properties[0]['lines'] > 1
-			movePhysicalCursor(@screen_height - 1, 0)
+			movePhysicalCursor(@game_screen_height - 1, 0)
 			print " -- MORE --"
 			$screen.readChar()
-			movePhysicalCursor(@screen_height - 2, 0)
+			movePhysicalCursor(@game_screen_height - 2, 0)
 			print "                "
-			movePhysicalCursor(@screen_height - 2, 0)
+			movePhysicalCursor(@game_screen_height - 2, 0)
 		end
 		bottom_clear_lines()
 	end
@@ -338,7 +349,7 @@ class ScreenClass
 		start = @window_properties[0]['start']
 		lines = @window_properties[0]['lines']
 		@window_content[start, lines] =
-			@window_content[start + 1, lines - 1] + [' ' * (@screen_width - 1)]
+			@window_content[start + 1, lines - 1] + [' ' * @game_screen_width]
 		@window_style[start, lines] = @window_style[start + 1, lines - 1]
 		refreshWindow(0)
 	end
@@ -381,17 +392,17 @@ class ScreenClass
 	end
 	def printPartialLine(str)
 		line = @cursor[@window]['line']
-		if line < 0 or line > @screen_height - 1 or 
+		if line < 0 or line > @game_screen_height - 1 or 
 					line < @window_properties[@window]['start'] 
 			fatalErr "PC=$#{$pc.to_s(16)}: screen.printPartialLine: " + 
 					"Tried to print to impossible line: " + 
 					(line != nil ? line.to_s : 'nil') +
 					" in window " + @window.to_s +
-					", screen_height is " + @screen_height.to_s +
+					", game_screen_height is " + @game_screen_height.to_s +
 					", bottom_window_start is " + @window_properties[0]['start'].to_s
 		end
 		return if str.length == 0 or @window == 2 && line > 0
-		maxlength = @screen_width - 1 - @cursor[@window]['col']
+		maxlength = @game_screen_width - @cursor[@window]['col']
 		str = str[0, maxlength] if str.length > maxlength
 		if @window_content[line] == nil
 			puts @window_content.length
@@ -421,18 +432,18 @@ class ScreenClass
 				end
 				# There are no newlines in str from this point
 				@buffer += str
-				if @buffer.length > @screen_width - 1
-					breakPos = @buffer.rindex(/ /, @screen_width - 1)
+				if @buffer.length > @game_screen_width
+					breakPos = @buffer.rindex(/ /, @game_screen_width)
 					if breakPos
 						printPartialLine @buffer[0 .. breakPos - 1]
 						newline()
 						bottom_add_line()
 						@buffer = @buffer [breakPos + 1 ..]
 					else
-						printPartialLine @buffer[0 .. @screen_width - 2]
+						printPartialLine @buffer[0 .. @game_screen_width - 1]
 						newline()
 						bottom_add_line()
-						@buffer = @buffer[@screen_width - 1 ..]
+						@buffer = @buffer[@game_screen_width ..]
 					end
 				end
 			elsif @window == 0
@@ -449,14 +460,14 @@ class ScreenClass
 				end
 				# There are no newlines in str from this point
 				while str and !str.empty? do
-					if @cursor[0]['col'] + str.length < @screen_width - 2
+					if @cursor[0]['col'] + str.length < @game_screen_width - 1
 						printPartialLine str
 						str = ""
 					else
-						printPartialLine str[0 .. @screen_width - @cursor[0]['col'] - 1]
+						printPartialLine str[0 .. @game_screen_width - @cursor[0]['col']]
 						newline()
 						bottom_add_line()
-						str = str[@screen_width - @cursor[0]['col'] ..]
+						str = str[@game_screen_width + 1 - @cursor[0]['col'] ..]
 					end
 				end
 			elsif @window == 1
@@ -575,6 +586,11 @@ class ScreenClass
 		end
 	end
 	def readInput(max_chars)
+		input = STDIN.gets.chomp()
+		input = input[0, max_chars] if input.length > max_chars
+		input
+	end
+	def OLDreadInput(max_chars)
 		@input_queue = ""
 		total = ""
 		loop do
@@ -2566,11 +2582,11 @@ def updateHeader
 	if $zcode_version > 3
 		writeByte(0x1e, 2) # Interpreter = Apple IIe
 		writeByte(0x1f, 1) # Interpreter version = 1
-		writeByte(0x20, $screen.screen_height) # Screen height in characters
-		writeByte(0x21, $screen.screen_width - 1) # Screen width in characters
+		writeByte(0x20, $screen.game_screen_height) # Screen height in characters
+		writeByte(0x21, $screen.game_screen_width) # Screen width in characters
 		if $zcode_version > 4
-			writeWord(0x22, $screen.screen_width - 1) # Screen width in units
-			writeWord(0x24, $screen.screen_height)  # Screen height in units
+			writeWord(0x22, $screen.game_screen_width) # Screen width in units
+			writeWord(0x24, $screen.game_screen_height)  # Screen height in units
 			writeByte(0x26, 1) # Font width in units
 			writeByte(0x27, 1) # Font height in units
 			writeByte(0x2c, 9) # Default background colour (white)
