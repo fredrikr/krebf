@@ -77,6 +77,7 @@ class ScreenClass
 		@window = 0
 		@bottom_printed_lines = 0
 		@window_content = []
+		@window_style = []
 		clearLines(0, @screen_height - 1)
 		statusHeight = ($zcode_version < 4 ? 1 : 0)
 		@window_properties = [
@@ -89,7 +90,14 @@ class ScreenClass
 			{ 'line' => 0, 'col' => 0 },
 			{ 'line' => 0, 'col' => 0 },
 		]
+		@style = [ 0, 0, 1]
 		unsplit()
+	end
+	def style
+		@style[@window]
+	end
+	def style=(value)
+		@style[@window] = value
 	end
 	def buffered
 		@buffered
@@ -187,15 +195,47 @@ class ScreenClass
 		end
 		refreshWindow(1)
 	end
+	def refreshLine(line)
+		movePhysicalCursor(line, 0)
+		if @window_style.length < line + 1 or
+				@window_style[line] == nil or
+				@window_style[line].all? {|x| x == 0}
+			# Simple case
+			print @window_content[line]
+			return true
+		end
+		# There is styling
+		str = @window_content[line]
+		styl = @window_style[line]
+		if styl.length < str.length
+			styl += Array.new(str.length - styl.length, 0)
+		end
+		
+		i = 0
+		while i < str.length do
+			style_val = styl[i]
+			done = styl[i + 1 .. ].index {|x| x != style_val}
+			if done
+				done += (i + 1)
+			else
+				done = str.length
+			end
+			# Print a segment
+			print "\033[7m" if style_val & 1 != 0 # Reverse
+			print "\033[1m" if style_val & 2 != 0 # Bold
+			print str[i .. done - 1]
+			print "\033[0m" if style_val != 0 # Normal
+			# Go to next segment, or end
+			i = done
+		end
+		true
+	end
 	def refreshWindow(window)
 		return if $zcode_version > 3 and window > 1
 		if @window_properties[window]['lines'] > 0
-			print "\033[7m " if window == 2 # Reverse text
 			@window_properties[window]['lines'].times do |i|
-				movePhysicalCursor(@window_properties[window]['start'] + i, 0)
-				print @window_content[@window_properties[window]['start'] + i]
+				refreshLine(@window_properties[window]['start'] + i)
 			end
-			print "\033[0m" if window == 2 # Normal text (reverse off)
 			cur = @cursor[@window]
 			movePhysicalCursor(cur['line'], cur['col'])
 		end
@@ -225,8 +265,12 @@ class ScreenClass
 		while @window_content.length < to + 1 do
 			@window_content += [nil]
 		end
+		while @window_style.length < to + 1 do
+			@window_style += [nil]
+		end
 		from.upto(to) do |line|
 			@window_content[line] = ' ' * (@screen_width - 1)
+			@window_style[line] = nil
 		end
 	end
 	def clearWindow(window)
@@ -291,10 +335,11 @@ class ScreenClass
 		more() if @bottom_printed_lines >= @window_properties[0]['lines'] - 1
 	end
 	def bottomScroll
-		@window_content[@window_properties[0]['start'], @window_properties[0]['lines']] =
-			@window_content[@window_properties[0]['start'] + 1, 
-			@window_properties[0]['lines'] - 1] +
-				[' ' * (@screen_width - 1)]
+		start = @window_properties[0]['start']
+		lines = @window_properties[0]['lines']
+		@window_content[start, lines] =
+			@window_content[start + 1, lines - 1] + [' ' * (@screen_width - 1)]
+		@window_style[start, lines] = @window_style[start + 1, lines - 1]
 		refreshWindow(0)
 	end
 	def newline
@@ -315,6 +360,24 @@ class ScreenClass
 		end
 		@cursor[@window]['col'] = 0
 		refreshWindow(@window)
+	end
+	def applyStyle(line, start_col, length)
+		# Add lines as needed
+		if @window_style.length < line + 1
+			@window_style += Array.new(line + 1 - @window_style.length)
+		end
+		# Add columns as needed
+		@window_style[line] = [] unless @window_style[line]
+		line_arr = @window_style[line]
+		if line_arr.length < start_col + length
+			line_arr += Array.new(start_col + length - line_arr.length, 0)
+		end
+		# Apply style
+		line_arr[start_col, length] = Array.new(length, style)
+		@window_style[line] = line_arr
+#		if style == 1 # DEBUG ONLY
+#			fatalErr "line = #{line} start_col = #{start_col} length = #{length} line_arr = #{@window_style[line].to_s}"
+#		end
 	end
 	def printPartialLine(str)
 		line = @cursor[@window]['line']
@@ -339,6 +402,7 @@ class ScreenClass
 			split(line + 1 - @window_properties[1]['start'])
 		end
 		@window_content[line][@cursor[@window]['col'], str.length] = str
+		applyStyle(line, @cursor[@window]['col'], str.length)
 		@cursor[@window]['col'] += str.length
 	end
 	def printBuffered(str, flush = false)
@@ -440,7 +504,10 @@ class ScreenClass
 				end
 				
 				input = io.read_nonblock(3)
-
+#				if input and input.length > 1
+#					print input.to_a {|i| i.ord }
+#				end
+				
 				# Normalize Windows arrow keys
 				if Gem.win_platform?
 					case input
@@ -465,9 +532,32 @@ class ScreenClass
 				end
 				
 #				if input == 'q' # DEBUG ONLY
-#					puts $debug.to_s
+#					puts @window_style.to_s # $debug.to_s
 #					exit 1
 #				end
+				if input
+					input = case input.ord
+						when 10, 13 then # Enter
+							13.chr
+						when 8, 66 then  # Backspace, Shift-B
+							8.chr
+						when 69 then # Shift-E
+							129.chr
+						when 88 then # Shift-X
+							130.chr
+						when 83 then # Ctrl-S
+							131.chr
+						when 68 then # Shift-D
+							132.chr
+						when 81 then # Shift-Q
+							puts "\nShift-Q pressed!"
+							exit 1
+						when 0 .. 31
+							nil
+						else
+							input
+						end
+				end
 				
 				return input
 
@@ -2005,7 +2095,11 @@ def insGetCursor
 end
 
 def insSetTextStyle
-	# Ignore, for now
+	$screen.flushBuffer()
+	styl = $args[0]
+	styl |= $screen.style if styl != 0
+		
+	$screen.style = styl
 end
 
 def insBufferMode
