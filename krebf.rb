@@ -546,10 +546,6 @@ class ScreenClass
 					input = @input_queue[0]
 				end
 				
-#				if input == 'q' # DEBUG ONLY
-#					puts @window_style.to_s # $debug.to_s
-#					exit 1
-#				end
 				if input
 					input = case input.ord
 						when 10, 13 then # Enter
@@ -1746,8 +1742,6 @@ def encodeWord(word)
 			}
 		else
 			charcode = char.ord
-			accentedpos = $default_unicode.index(char)
-			charcode = 155 + accentedpos if accentedpos
 			hash = {
 				'zscii' => charcode
 			}
@@ -1867,12 +1861,8 @@ def tokenise(buffer, parse, dictionary, flag)
 	input = $z[buffer_pointer_start, input_length]
 
 	buffer_pointer_start.upto(buffer_pointer_start + input_length - 1) do |char_address|
-#	input.each_char do |char|
 		char = $z[char_address]
 		charcode = char.ord
-
-		accentedpos = $default_unicode.index(char)
-		charcode = accentedpos + 155 if accentedpos
 
 		if word_start
 			if char == ' ' or
@@ -1944,10 +1934,10 @@ def insRead
 
 	input.each_char do |char|
 		charcode = char.ord
-
-		accentedpos = $default_unicode.index(char)
-		charcode = accentedpos + 155 if accentedpos
-
+		if charcode > 127
+			accentedpos = $default_unicode.index(char)
+			charcode = accentedpos + 155 if accentedpos
+		end
 		writeByte(buffer_pointer, charcode)
 		buffer_pointer += 1
 	end

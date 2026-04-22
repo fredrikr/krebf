@@ -9,6 +9,8 @@ Left to do:
 * Allow custom unicode table
 * Read debug data, and mark called routines with routine name?
 * Flag dirty windows or dirty lines, so we don't have to refresh everything all the time
+* Support colour
+* Support timed input
 
 Done:
 * Some things that Czech prints don't appear on screen!
@@ -47,4 +49,5 @@ Done:
 * Support reverse text
 * Support bold, italic etc + combinations, if possible
 * "Press RETURN..." appears in top window, when asking for a randomized character in Beyond Zork.
+* Support accented characters in input
 
