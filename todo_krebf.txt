@@ -1,0 +1,50 @@
+Left to do:
+
+* Support screen size changes
+* Common cursor routines
+* Common newline handling routines?
+* Debug console
+* Make reading keyboard work well on Linux, including backspace
+* Check how well it works on Mac
+* Allow custom unicode table
+* Read debug data, and mark called routines with routine name?
+* Flag dirty windows or dirty lines, so we don't have to refresh everything all the time
+
+Done:
+* Some things that Czech prints don't appear on screen!
+* v7 packed address support
+* Unshift alphabet if next character is an abbreviation or escape sequence
+* read opcode
+* Replace random opcode placeholder code
+* Fix discrepancy vs Ozmoo in random opcode
+* word wrap
+* Update header at game start
+* Replace save/restore opcode placeholder code
+* Replace restart opcode placeholder code
+* Test/debug default Unicode table
+* Replace show_status opcode placeholder code
+* statusline
+* Screen model
+* split window
+* streams
+* Decode a good chunk of a string before calling streams/screen to print it
+* sound_effect opcode
+* Custom read routine (part of screen class?)
+* Put statusline in @window_content[0]
+* Store argument list in each stack frame, to help debugging
+* v4 opcodes
+* tokenise
+* Fix planetfall saying "There's nothing to ge!"
+* encode_text
+* erase_line
+* Don't implement set_true_colour, as the interpreter won't be fully standard 1.1 compliant
+* custard: If upper window fills screen, put lower window cursor at bottom row of upper window.
+* Beyond Zork repeats some text fragments.
+* Beyond Zork: Krebf dies after first input (Stack level too deep)
+* Test custom dictionary, using encode + tokenise
+* Part of last line of room description stays in Beyond Zork
+	$273b4 prints a room description.
+* Support reverse text
+* Support bold, italic etc + combinations, if possible
+* "Press RETURN..." appears in top window, when asking for a randomized character in Beyond Zork.
+

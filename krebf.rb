@@ -243,14 +243,18 @@ class ScreenClass
 			movePhysicalCursor(cur['line'], cur['col'])
 		end
 	end
-	def selectWindow(window)
-		if impossibleWindow(window)
+	def selectWindow(newWindow)
+		if impossibleWindow(newWindow)
 			fatalErr "PC=$#{$pc.to_s(16)}: screen.selectWindow: " + 
 					"Tried to select impossible window: " + 
-					(window != nil ? window.to_s : 'nil') +
+					(newWindow != nil ? newWindow.to_s : 'nil') +
 					" when window was " + @window.to_s
 		end
-		@window = window 
+		if newWindow != @window
+			$screen.flushBuffer() if @window == 0
+			refreshWindow(@window)
+		end
+		@window = newWindow 
 	end
 	def window
 		@window
@@ -2777,10 +2781,14 @@ while $quit == false do
 	end
 	func = funcs[$instruction['opcode_number']]
 
-	if address == 0x72130000
+	if address == 0x3B51B000
+		$screen.flushBuffer()
+		$screen.refreshWindow(0)
+		line, col = $screen.getCursor()
+		puts "Window: #{$screen.window} line: #{line} col: #{col}"
 		puts $stack.stackForSave.to_s
 		puts "PC=$#{address.to_s(16)}, Ins = #{$instruction}" #if $trace
-		fatalErr "BREAK!"
+		fatalErr "POST BREAK!"
 	end
 
 	func.call()
