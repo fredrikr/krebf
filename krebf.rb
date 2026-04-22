@@ -102,6 +102,73 @@ class ScreenClass
 		@style = [ 0, 0, 1]
 		unsplit()
 	end
+	def stat # DEBUG ONLY
+		@window_content[0]
+	end
+	def checkScreenSize
+		@screen_height, @screen_width = IO.console.winsize
+	end
+	def checkForChangedScreenSize
+		height, width = IO.console.winsize
+		return false if height == @screen_height and width == @screen_width
+
+		# Screen size has changed
+		if width < @screen_width
+			@window_content.length.times do |i|
+				if @window_content[i].length > width - 1
+					@window_content[i] = @window_content[i][0, width - 1]
+				end
+			end
+		end
+		
+		@screen_height = height
+		@screen_width = width
+		@game_screen_height = @screen_height - 1
+		@game_screen_width = @screen_width - 1
+		if @window_content.length > @game_screen_height
+			@window_content = @window_content.take(@game_screen_height)
+		end
+		len = @window_content.length
+		if len < @game_screen_height
+			@window_content += Array.new(@game_screen_height - len)
+			clearLines(len, @game_screen_height - 1)
+		end
+		@cursor.each do |c|
+			c['line'] = @game_screen_height - 1 if c['line'] > @game_screen_height - 1
+			c['col'] = @game_screen_width - 1 if c['col'] > @game_screen_width - 1
+		end
+		if @window_properties[1]['start'] + @window_properties[1]['lines'] > 
+					@game_screen_height
+			@window_properties[1]['lines'] = 
+					@game_screen_height - @window_properties[1]['start']
+		end
+		@window_properties[0]['start'] = 
+					@window_properties[1]['start'] + @window_properties[1]['lines']
+		@window_properties[0]['lines'] = 
+					@game_screen_height - @window_properties[0]['start']	
+
+		# Clear and redraw screen
+		movePhysicalCursor(@screen_height - 1, 0)
+		@screen_height.times do
+			print "\n"
+		end
+		@window_properties.length.times do |i|
+			refreshWindow(i)
+		end
+		true
+	end
+	def screen_height
+		@screen_height
+	end
+	def screen_width
+		@screen_width
+	end
+	def game_screen_height
+		@game_screen_height
+	end
+	def game_screen_width
+		@game_screen_width
+	end
 	def style
 		@style[@window]
 	end
@@ -265,21 +332,6 @@ class ScreenClass
 	def window
 		@window
 	end
-	def checkScreenSize
-		@screen_height, @screen_width = IO.console.winsize
-	end
-	def screen_height
-		@screen_height
-	end
-	def screen_width
-		@screen_width
-	end
-	def game_screen_height
-		@game_screen_height
-	end
-	def game_screen_width
-		@game_screen_width
-	end
 	def clearLines(from, to)
 		while @window_content.length < to + 1 do
 			@window_content += [nil]
@@ -409,7 +461,8 @@ class ScreenClass
 					(line != nil ? line.to_s : 'nil') +
 					" in window " + @window.to_s +
 					", game_screen_height is " + @game_screen_height.to_s +
-					", bottom_window_start is " + @window_properties[0]['start'].to_s
+					", bottom_window_start is " + @window_properties[0]['start'].to_s + 
+					", cursor is " + @cursor.to_s
 		end
 		return if str.length == 0 or @window == 2 && line > 0
 		maxlength = @game_screen_width - @cursor[@window]['col']
@@ -1930,8 +1983,10 @@ def insRead
 #	input = STDIN.gets.chomp[0 .. maxchars - 1].downcase
 #	movePhysicalCursor($screen.screen_height - 2, 0)
 	input = $streams.readInput(maxchars)[0 .. maxchars - 1].downcase
+	checkForChangedScreenSize()
 	$streams.printASCIICommand(input, true)
-
+	
+	
 	### Write input into memory
 
 	buffer_pointer_start = buffer + ($zcode_version > 4 ? 2 : 1)
@@ -2566,6 +2621,17 @@ def readInstruction
 	}
 end
 
+def updateScreenSizeInHeader
+	if $zcode_version > 3
+		writeByte(0x20, $screen.game_screen_height) # Screen height in characters
+		writeByte(0x21, $screen.game_screen_width) # Screen width in characters
+		if $zcode_version > 4
+			writeWord(0x22, $screen.game_screen_width) # Screen width in units
+			writeWord(0x24, $screen.game_screen_height)  # Screen height in units
+		end
+	end
+end
+
 def updateHeader
 	flags1 = readByte(1)
 	if $zcode_version < 4
@@ -2577,15 +2643,13 @@ def updateHeader
 
 	writeByte(0x32, 0) # Standard revision, major version
 	writeByte(0x33, 0) # Standard revision, minor version
+
+	updateScreenSizeInHeader()
 	
 	if $zcode_version > 3
 		writeByte(0x1e, 2) # Interpreter = Apple IIe
 		writeByte(0x1f, 1) # Interpreter version = 1
-		writeByte(0x20, $screen.game_screen_height) # Screen height in characters
-		writeByte(0x21, $screen.game_screen_width) # Screen width in characters
 		if $zcode_version > 4
-			writeWord(0x22, $screen.game_screen_width) # Screen width in units
-			writeWord(0x24, $screen.game_screen_height)  # Screen height in units
 			writeByte(0x26, 1) # Font width in units
 			writeByte(0x27, 1) # Font height in units
 			writeByte(0x2c, 9) # Default background colour (white)
@@ -2686,6 +2750,12 @@ def initializeGame
 #	$screen.clear()
 	$args = [ 0xffff ]
 	insEraseWindow()
+end
+
+def checkForChangedScreenSize
+	if $screen.checkForChangedScreenSize()
+		updateScreenSizeInHeader()
+	end
 end
 
 ####################################
