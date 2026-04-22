@@ -6,7 +6,6 @@ Left to do:
 * Debug console
 * Make reading keyboard work well on Linux, including backspace
 * Check how well it works on Mac
-* Allow custom unicode table
 * Read debug data, and mark called routines with routine name?
 * Flag dirty windows or dirty lines, so we don't have to refresh everything all the time
 * Support colour
@@ -50,4 +49,5 @@ Done:
 * Support bold, italic etc + combinations, if possible
 * "Press RETURN..." appears in top window, when asking for a randomized character in Beyond Zork.
 * Support accented characters in input
+* Allow custom unicode table
 

@@ -11,6 +11,12 @@ require 'json'
 require 'base64'
 #require 'tty-reader'
 
+if Gem.win_platform?
+	system("chcp 65001 > NUL") 
+	STDIN.set_encoding("UTF-8")
+	STDOUT.set_encoding("UTF-8")
+end
+
 $z = nil # Z-machine memory contents
 $quit = false 
 
@@ -763,7 +769,7 @@ class StreamsClass
 			code = char.ord
 			result +=
 				case
-					when (code >= 155 and code <= 223) then $default_unicode[code - 155]
+					when (code >= 155 and code <= 223) then $final_unicode[code - 155]
 					when code == 13 then "\n"
 					else char
 				end
@@ -794,7 +800,6 @@ class StreamsClass
 	def printASCIICommand(strASCII, echoToScreen = false)
 		strASCII = strASCII.chomp()
 		if @outputStreams[1]['active'] and echoToScreen
-#			strASCII.each_char { |x| print"#{x.ord}," }
 			$screen.printBuffered(strASCII + "\n", true)
 			$screen.refreshWindow(0)
 		end
@@ -1076,7 +1081,7 @@ def printAtAddress(address, return_string = false)
 			elsif value > 5
 				char = $alphabet[26 * alphabet_offset + value - 6]
 				if char.ord >= 155 and char.ord <= 223
-					char = $default_unicode[char.ord - 154]
+					char = $final_unicode[char.ord - 154]
 				end
 			elsif value == 0
 				char = ' '
@@ -1935,7 +1940,7 @@ def insRead
 	input.each_char do |char|
 		charcode = char.ord
 		if charcode > 127
-			accentedpos = $default_unicode.index(char)
+			accentedpos = $final_unicode.index(char)
 			charcode = accentedpos + 155 if accentedpos
 		end
 		writeByte(buffer_pointer, charcode)
@@ -1961,7 +1966,7 @@ def insPrintChar
 	charcode = $args[0]
 	char = charcode.chr
 	
-	char = $default_unicode[charcode - 155] if charcode >= 155 and charcode <= 223
+	char = $final_unicode[charcode - 155] if charcode >= 155 and charcode <= 223
 	
 	$streams.printZSCIIString char
 end
@@ -2656,6 +2661,26 @@ def initializeGame
 
 	$default_unicode = "äöüÄÖÜß»«ëïÿËÏáéíóúýÁÉÍÓÚÝàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛåÅøØãñõÃÑÕæÆçÇþðÞÐ£œŒ¡¿"
 
+	$final_unicode = $default_unicode
+	if $zcode_version > 4
+		ext_address = readWord(0x36)
+		if ext_address != 0
+			ext_length = readWord(ext_address)
+			if ext_length >= 3
+				unicode_table_address = readWord(ext_address + 6)
+				if unicode_table_address != 0
+					count = readByte(unicode_table_address)
+					raw_table = $z[unicode_table_address + 1, count * 2]
+					raw_table = raw_table.force_encoding("UTF-16BE")
+					$final_unicode = raw_table.encode("UTF-8")
+#					puts $final_unicode
+#					puts $final_unicode.length
+#					exit 1
+				end
+			end
+		end
+	end
+	
 	updateHeader()
 	
 #	$screen.clear()
