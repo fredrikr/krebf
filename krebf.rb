@@ -11,6 +11,8 @@ require 'json'
 require 'base64'
 #require 'tty-reader'
 
+$krebf_version = "1.0"
+
 if Gem.win_platform?
 	system("chcp 65001 > NUL") 
 	STDIN.set_encoding("UTF-8")
@@ -1103,7 +1105,7 @@ def printAtAddress(address, return_string = false)
 	abbrev_bank = 0
 	escape_step = 0
 	escape_code = 0
-	str = ""
+	str = "".force_encoding('ASCII-8BIT')
 	until word & 0x8000 != 0 do
 		word = readWord(address)
 		address += 2
@@ -1117,7 +1119,7 @@ def printAtAddress(address, return_string = false)
 			if escape_step > 0
 				escape_code = (escape_code << 5) | value
 				escape_step -= 1
-				char = (escape_code & 0xff).chr if escape_step == 0
+				char = (escape_code & 0xff).chr(Encoding::ASCII_8BIT) if escape_step == 0
 			elsif abbrev_bank > 0
 				alphabet_offset = 0
 				abb = 32 * abbrev_bank - 32 + value
@@ -1133,9 +1135,6 @@ def printAtAddress(address, return_string = false)
 				char = 13.chr
 			elsif value > 5
 				char = $alphabet[26 * alphabet_offset + value - 6]
-				if char.ord >= 155 and char.ord <= 223
-					char = $final_unicode[char.ord - 154]
-				end
 			elsif value == 0
 				char = ' '
 			elsif value == 1
@@ -1174,7 +1173,7 @@ def printAtAddress(address, return_string = false)
 			if char
 				str += char
 				if return_string == false and str.length > 79
-					$streams.printZSCIIString str.to_s # char.to_s
+						$streams.printZSCIIString str.to_s # char.to_s
 					str = ""
 				end
 				alphabet_offset = alphabet_offset_lock
@@ -2720,7 +2719,7 @@ def initializeGame
 				" ^0123456789.,!?_#'\"/\\-:()" )
 	else
 		$alphabet =
-			$z[alphabetaddress .. alphabetaddress + 77]
+			$z[alphabetaddress .. alphabetaddress + 77].force_encoding('ASCII-8BIT')
 	end
 
 	$default_unicode = "äöüÄÖÜß»«ëïÿËÏáéíóúýÁÉÍÓÚÝàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛåÅøØãñõÃÑÕæÆçÇþðÞÐ£œŒ¡¿"
@@ -2767,7 +2766,11 @@ def printUsageAndExit
 	exit 1
 end
 
+print "Krebf v#{$krebf_version}\n\n"
+
 printUsageAndExit() if ARGV.length < 1
+
+sleep(0.7)
 
 $storyfile_name = nil
 $disassembly_filename = nil
@@ -2784,7 +2787,7 @@ while args.length > 0 do
 	end
 end
 
-$z = IO.binread($storyfile_name)
+$z = IO.binread($storyfile_name).force_encoding('ASCII-8BIT')
 
 $dynmem_backup = $z[0 .. readWord(0xe) - 1]
 

@@ -3,12 +3,17 @@ Left to do:
 * Common cursor routines
 * Common newline handling routines?
 * Debug console
+* Allow cursor keys and function keys to be read for real, not with workarounds like Shift-E
+* Allow saving transcript with save file, or as separate file
 * Make reading keyboard work well on Linux, including backspace
 * Check how well it works on Mac
 * Read debug data, and mark called routines with routine name?
 * Flag dirty windows or dirty lines, so we don't have to refresh everything all the time
 * Support colour
 * Support timed input
+* Support scrollback
+* Support automatic playthroughs?
+* Help-text, show "Ctrl-H for help"?
 
 Done:
 * Some things that Czech prints don't appear on screen!
