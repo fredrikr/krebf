@@ -1,6 +1,11 @@
 # krebf
 A Z-code interpreter in Ruby, (c) Fredrik Ramsberg 2026, MIT License
 
+Sample usage:
+```
+ruby krebf.rb zork1.z3
+```
+
 **Aim**: Full support for v1-v5, v7 and v8 Z-code games, Windows, Linux and Mac, without any dependencies, except for a standard Ruby installation.
 
 **Status**: Support for v1-v5,v7 and v8 Z-code games is complete. Tested on Windows and Linux.
