@@ -2892,6 +2892,8 @@ while $quit == false do
 	end
 end
 
-puts "-- End of session --"
+$screen.flushBuffer()
+
+puts "\n-- End of session --"
 
 #puts $debug.to_s
