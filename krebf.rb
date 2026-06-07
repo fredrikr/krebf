@@ -730,7 +730,7 @@ class StreamsClass
 		else
 			if @commands.empty?
 				activateInput(0)
-				command = readInput()
+				command = $screen.readInput(maxchars)
 			else
 				pos = @commands.index(/\n/)
 				if pos
